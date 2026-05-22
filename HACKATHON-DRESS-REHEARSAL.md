@@ -6,6 +6,22 @@ Print this. Check boxes as you go. Target: complete T+0..T+120 in under 130 minu
 
 ---
 
+## v2.0 dress-rehearsal updates
+
+This checklist was authored against v1.1 (PowerShell + bash runtime). v2.0.0 migrates the entire runtime to Python 3.11+ via `uv` (Astral). Apply these deltas while running the rehearsal:
+
+- **Prereqs additions**: `uv --version` exits 0 (or accept bootstrap's auto-install at Phase 1.5), `python --version` reports ≥ 3.11 (uv-managed; surfaced after `uv sync`).
+- **Test command**: `uv run pytest tests/ --cov=src/dlc_bridge` replaces the v1.1 `tests/run-all.{ps1,sh}` flow. Expected: 497 passed + 4 documented skips, coverage ≥ 89%.
+- **Parity-gate confirmation**: 74 parity tests under `tests/parity/` cross-validate v2.0 against v1.1 PS 5.1. Per Epic 4 outcome, all 74 are GREEN locally and on the Windows CI leg; tests gracefully skip on macOS/Linux CI legs where PowerShell is unavailable.
+- **Hook invocations**: all 14 `.kiro/hooks/*.kiro.hook` files now invoke `uv run python -m dlc_bridge.hooks.<name>` instead of `powershell.exe -File .kiro/scripts/hook-<name>.ps1`. The Kiro Agent Hooks panel UX is unchanged.
+- **Smoke test**: see the dedicated `SMOKE-TEST-CHECKLIST.md` in this directory for the fresh-VM end-to-end verification flow (8 maintainer-executed steps covering uv detection, hook fire, cache hit, `-NoAutoInstallUv` opt-out).
+- **Bootstrap phases**: Phase 1.5 detects/auto-installs uv; Phase 4.5 runs `uv sync`. Phase 6 smoke now prefers `uv run dlc-bridge help`. Bootstrap exit codes 8/9/10 are unchanged.
+- **Cache invalidation**: `cache_version: 2` field on first v2.0 invocation. v1 cache entries silently miss; first `(slug, verb)` invocation post-upgrade re-runs the bridge.
+
+The body of this checklist (below) retains the original v1.1 phrasing as historical reference. The Python-equivalent commands map 1:1: anywhere you see `.kiro/scripts/dlc-bridge.ps1`, substitute `uv run dlc-bridge`.
+
+---
+
 ## Prerequisites (T-30 min, before the rehearsal starts)
 
 - [ ] `claude --version` exits 0 and reports >= 2.0

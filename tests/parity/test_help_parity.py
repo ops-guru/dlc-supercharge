@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from .conftest import require_powershell, run_powershell
+from .conftest import require_powershell_and_legacy, run_powershell
 
 
 pytestmark = pytest.mark.parity
@@ -74,7 +74,7 @@ def test_python_help_lists_all_supported_verbs(repo_root: Path) -> None:
     )
 
 
-@require_powershell
+@require_powershell_and_legacy
 def test_ps_help_includes_canonical_verbs(repo_root: Path) -> None:
     """v1.1 PS ``help`` mentions a recognizable subset of the canonical verb set.
 

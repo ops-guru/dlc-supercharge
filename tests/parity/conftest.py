@@ -68,6 +68,43 @@ require_powershell = pytest.mark.skipif(
 )
 
 
+# Repo root resolved once at import (so legacy-script presence checks are cheap).
+_REPO_ROOT = Path(__file__).parent.parent.parent
+_LEGACY_SCRIPTS_DIR = _REPO_ROOT / ".kiro" / "scripts"
+
+
+def have_legacy_scripts() -> bool:
+    """Return True iff the v1.1 PS bridge scripts still live under ``.kiro/scripts/``.
+
+    After the Epic 5 cutover (WI-15), this directory is deleted entirely; cross-
+    language parity tests that subprocess into ``state-update.ps1`` /
+    ``dlc-bridge.ps1`` / ``id-propagate.ps1`` / ``epic-inject.ps1`` will then
+    skip cleanly rather than fail with FileNotFoundError.
+
+    The check is intentionally narrow — a single representative script
+    (``dlc-bridge.ps1``) — because Epic 5 deletes ALL v1.1 scripts at once.
+    """
+    return (_LEGACY_SCRIPTS_DIR / "dlc-bridge.ps1").exists()
+
+
+require_legacy_scripts = pytest.mark.skipif(
+    not have_legacy_scripts(),
+    reason="v1.1 .kiro/scripts/*.ps1 removed post-Epic-5 cutover (parity goldens remain authoritative)",
+)
+
+
+# Composite gate used by cross-language parity tests that subprocess into a
+# v1.1 PS script. Both conditions must hold for the test to run.
+require_powershell_and_legacy = pytest.mark.skipif(
+    _POWERSHELL_PATH is None or not have_legacy_scripts(),
+    reason=(
+        "cross-language parity test requires powershell.exe/pwsh AND the v1.1 "
+        ".kiro/scripts/*.ps1 sources (removed in Epic 5 cutover; goldens under "
+        "tests/goldens/v1_1/ remain authoritative)"
+    ),
+)
+
+
 def run_powershell(args: list[str], *, cwd: Path | None = None,
                    check: bool = True, timeout: float = 30.0) -> subprocess.CompletedProcess:
     """Invoke ``powershell.exe`` (or ``pwsh``) with v1.1-style flags.

@@ -22,7 +22,7 @@ import pytest
 
 from dlc_bridge.util.id_propagate import propagate_ids
 
-from .conftest import normalize_eol, require_powershell, run_powershell
+from .conftest import normalize_eol, require_powershell_and_legacy, run_powershell
 
 
 pytestmark = pytest.mark.parity
@@ -78,7 +78,7 @@ FIXTURES = [
 ]
 
 
-@require_powershell
+@require_powershell_and_legacy
 @pytest.mark.parametrize("name,threshold,expected_propagated", FIXTURES, ids=[f[0] for f in FIXTURES])
 def test_id_propagate_matches_v1_1(
     name: str,

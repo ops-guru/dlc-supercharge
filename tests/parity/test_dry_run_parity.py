@@ -22,7 +22,7 @@ import pytest
 
 from dlc_bridge.verbs import SUPPORTED_VERBS
 
-from .conftest import require_powershell, run_powershell
+from .conftest import require_powershell_and_legacy, run_powershell
 
 
 pytestmark = pytest.mark.parity
@@ -118,9 +118,9 @@ class TestPythonDryRunStructure:
         assert len(envelope["assembledPrompt"]) > 50
 
 
-@require_powershell
+@require_powershell_and_legacy
 class TestCrossLanguageDryRun:
-    """Cross-language verb-identity comparison — skipped without PowerShell."""
+    """Cross-language verb-identity comparison — skipped without PowerShell or post-Epic-5 cutover."""
 
     @pytest.mark.parametrize("verb", sorted(SUPPORTED_VERBS))
     def test_both_implementations_agree_on_verb_and_skill_basename(

@@ -26,7 +26,7 @@ from dlc_bridge.util.state import (
     record_pr,
 )
 
-from .conftest import normalize_eol, require_powershell, run_powershell
+from .conftest import normalize_eol, require_powershell_and_legacy, run_powershell
 
 
 pytestmark = pytest.mark.parity
@@ -120,7 +120,7 @@ def _ps_incr_escalation(slug_dir: Path, repo_root: Path) -> None:
     run_powershell(["-Command", cmd])
 
 
-@require_powershell
+@require_powershell_and_legacy
 class TestStateParityCrossLanguage:
     """Each test drives an identical operation on two separate workspaces
     (one Python, one PS) and compares the resulting state.md byte-for-byte

@@ -19,7 +19,7 @@ import pytest
 
 from dlc_bridge.util.epic_inject import inject_epic_dir
 
-from .conftest import normalize_eol, require_powershell, run_powershell
+from .conftest import normalize_eol, require_powershell_and_legacy, run_powershell
 
 
 pytestmark = pytest.mark.parity
@@ -65,7 +65,7 @@ FIXTURES = [
 ]
 
 
-@require_powershell
+@require_powershell_and_legacy
 @pytest.mark.parametrize(
     "name,expected_injected,expected_skipped",
     FIXTURES,

@@ -2,6 +2,56 @@
 
 All notable changes to DLC SuperCharge are documented in this file. Format: [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/). Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-05-22 — Python runtime migration (BREAKING)
+
+Big-bang cutover from the v1.1 PowerShell + POSIX bash dual-stack to a single Python 3.11+ codebase. Gated by a 74-test golden-artifact parity suite (FR-19) cross-validated against v1.1 PS 5.1.
+
+### BREAKING CHANGES
+
+- **Drops the PowerShell + POSIX bash dual-runtime.** All 49 `.kiro/scripts/*.ps1` and `*.sh` files have been replaced with a single Python 3.11+ codebase under `src/dlc_bridge/`.
+- **Requires `uv` (Astral) launcher and Python 3.11+.** Bootstrap auto-installs `uv` via `irm https://astral.sh/uv/install.ps1 | iex` (Windows) or `curl -LsSf https://astral.sh/uv/install.sh | sh` (POSIX). Opt out with `-NoAutoInstallUv` / `--no-auto-install-uv`.
+- **Invalidates the bridge hash cache.** New `cache_version: 2` top-level field is required; v1 cache entries are silently treated as misses. First invocation per `(slug, verb)` after upgrade re-runs the bridge.
+- **Test runner changed**: `uv run pytest tests/` replaces the v1.1 PS+bash hand-rolled Assert harness under `.dlc/dlc-supercharge/tests/`.
+
+### Added
+
+- `src/dlc_bridge/` — single Python package replacing the v1.1 runtime (24 modules: `cli.py`, `verbs.py`, `cache.py`, `status.py`, `retry.py`, `background_runner.py`, `exceptions.py`, plus `util/` (encoding, hash, slug, mode, emit, state, id_propagate, epic_inject, debounce, power) and `hooks/` (14 hook modules + `_common.py`)).
+- `tests/parity/` — golden-artifact parity gate (FR-19). 74 parity tests: 12 hash + 13 slug + 6 state + 5 id-propagate + 4 epic-inject + 2 help + 32 dry-run. Embedded-constant cases run on every CI leg; cross-language live PS tests run when `powershell.exe` / `pwsh` is on PATH.
+- `tests/{unit,integration,parity}/` — pytest suite with `--cov-fail-under=80` gate. Current coverage: **89.58%** line+branch on `src/dlc_bridge/`.
+- `.github/workflows/test.yml` — cross-platform CI matrix (`[windows-latest, macos-latest, ubuntu-latest] × [3.11, 3.12]` = 6 legs) using `astral-sh/setup-uv@v3` with `uv.lock` caching.
+- `dlc-supercharge/bootstrap.{ps1,sh}` Phase 1.5 (uv check + auto-install) and Phase 4.5 (uv sync).
+- `--no-auto-install-uv` / `-NoAutoInstallUv` bootstrap flag (NFR-8) — exits 9 with the manual-install URL when uv is missing.
+- `dlc-supercharge/SMOKE-TEST-CHECKLIST.md` — fresh-VM verification flow for maintainers (WI-23).
+- `tests/parity/capture_goldens.py` — utility script that re-captures goldens from v1.1 PS sources; idempotent with `--force`.
+
+### Fixed
+
+- Eliminates the v1.1 bug class around UTF-8 codepage fallback, BOM-on-`Set-Content -Encoding utf8`, CRLF/LF normalization, and em-dash mangling in PS 5.1 sources: Python defaults (`encoding='utf-8'`, `newline='\n'`, `path.write_bytes()`) are correct everywhere.
+- Background subprocess on Windows uses `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` (D-11), making parent-exit safe (probe-validated; closes R-9).
+- Atomic writes via `os.replace(tmp, dest)` everywhere (D-5) — replaces v1.1's `Move-Item -Force`.
+- `state.md` writes no longer emit a UTF-8 BOM (NFR-3). The parity comparator strips BOM before comparing — this is the intentional behavioral fix vs v1.1, documented in `_strip_bom`.
+
+### Removed
+
+- `.kiro/scripts/*.ps1` (25 files) — replaced by `src/dlc_bridge/`.
+- `.kiro/scripts/*.sh` (24 files) — replaced by `src/dlc_bridge/`.
+- `.dlc/dlc-supercharge/tests/*.ps1` + `*.sh` (hand-rolled Assert harness) — replaced by the `tests/` pytest suite.
+- `.dlc/dlc-supercharge/tests/fixtures/` — superseded by `tests/fixtures/`.
+
+### Intentional behavioral changes from v1.1
+
+At runtime contract level, none: same 16 verbs, same exit codes (0, 2, 3, 4, 5, 6, 7), same JSON schemas (status file fields, dry-run envelope), same stdout markers (`BRIDGE_OK`, `BRIDGE_CACHED`, `BRIDGE_FAILED`, `BACKGROUND_JOB_ID`, `HOOK_DONE`, etc.). The only user-visible contract change is the `cache_version: 2` schema field on hash-cache writes.
+
+### Migration
+
+- **Run `dlc-supercharge/bootstrap.ps1`** (Windows) or `bash dlc-supercharge/bootstrap.sh` (POSIX) to upgrade in place. Bootstrap is idempotent.
+- Existing `.kiro/hooks/*.kiro.hook` files were rewritten in this PR to invoke `uv run python -m dlc_bridge.hooks.<name>`.
+- See `dlc-supercharge/SMOKE-TEST-CHECKLIST.md` for the fresh-VM verification flow.
+
+### Rollback
+
+- Tag `v1.1.0-pre-cutover` preserves the v1.1 PS+bash runtime. To roll back: `git checkout v1.1.0-pre-cutover && powershell -File dlc-supercharge\bootstrap.ps1 -Force -Into .`.
+
 ## [1.0.1] - 2026-05-20
 
 Same-day post-1.0.0 patch — discovered during live install-test in Kiro IDE: Power didn't appear in Kiro's Powers panel after `bootstrap` install.
