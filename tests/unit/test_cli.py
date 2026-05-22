@@ -95,6 +95,62 @@ def test_cli_dry_run_propagates_budget_to_args(
     assert payload["args"][idx + 1] == "7.5"
 
 
+def test_cli_dry_run_succeeds_when_plugin_cache_missing(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: ``--dry-run`` must succeed even when the DLC plugin cache
+    is not installed (CI runners, fresh clones).
+
+    The dry-run path emits the FR-5 envelope without invoking claude, so it
+    must not depend on the live plugin cache. Real dispatch (no ``--dry-run``)
+    still fails closed with exit 9 — see
+    :func:`test_cli_live_dispatch_fails_when_plugin_cache_missing`.
+    """
+    # Point _default_plugin_cache_root at a non-existent directory.
+    from dlc_bridge import verbs
+
+    monkeypatch.setattr(
+        verbs,
+        "_default_plugin_cache_root",
+        lambda: tmp_path / "nonexistent" / "plugin" / "cache",
+    )
+
+    rc = main(["review-pr", "--pr", "1", "--dry-run"])
+    assert rc == 0, "dry-run must not fail when plugin cache is missing"
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "dry-run"
+    assert payload["verb"] == "review-pr"
+    # Synthesized placeholder still ends in SKILL.md (FR-5 envelope contract).
+    assert payload["skillPath"].endswith("SKILL.md")
+    # Placeholder path makes the missing-cache state explicit.
+    assert "uninstalled" in payload["skillPath"]
+
+
+def test_cli_live_dispatch_fails_when_plugin_cache_missing(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: real dispatch must still fail closed (exit 9) when the
+    plugin cache is missing — the dry-run tolerance is dry-run-scoped only.
+    """
+    from dlc_bridge import verbs
+
+    monkeypatch.setattr(
+        verbs,
+        "_default_plugin_cache_root",
+        lambda: tmp_path / "nonexistent" / "plugin" / "cache",
+    )
+
+    rc = main(["review-pr", "--pr", "1"])
+    assert rc == 9, "real dispatch must surface ConfigurationError as exit 9"
+    err = capsys.readouterr().err
+    assert "DLC plugin cache not found" in err
+
+
 # --- live dispatch (Epic 2b WI-16: real claude subprocess invocation) -------
 
 

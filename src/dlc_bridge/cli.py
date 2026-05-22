@@ -318,6 +318,27 @@ def _build_claude_argv(
 # ----- dry-run envelope (FR-5) ---------------------------------------------
 
 
+def _synthetic_dry_run_skill_path(verb: str) -> Path:
+    """Return a placeholder SKILL.md path for dry-run when the plugin cache is absent.
+
+    The dry-run envelope contract (FR-5) requires a ``skillPath`` that ends in
+    ``SKILL.md``. When the DLC plugin cache is not installed (CI runners,
+    fresh clones), the real resolver raises ``ConfigurationError``. For dry-run
+    only, we synthesize a path that preserves the documented shape
+    (``.../skills/<folder>/SKILL.md``) so downstream tooling can still pattern-match
+    against the envelope without requiring the live plugin install.
+
+    Real (non-dry-run) dispatch still fails closed via the original
+    ``ConfigurationError`` — this fallback is dry-run-scoped only.
+    """
+    from dlc_bridge.verbs import _default_plugin_cache_root, skill_folder_for
+
+    folder = skill_folder_for(verb)
+    return (
+        _default_plugin_cache_root() / "uninstalled" / "skills" / folder / "SKILL.md"
+    )
+
+
 def _build_dry_run_envelope(
     verb: str,
     skill_path: Path,
@@ -577,8 +598,17 @@ def _dispatch(args: argparse.Namespace, stdout, stderr) -> int:  # noqa: ANN001
     if args.target is not None:
         args.target = _validate_path_under_root(args.target, "--target")
 
-    # Skill + task assembly (WI-16). Skill resolution may raise ConfigurationError.
-    skill_path = resolve_skill_path(verb)
+    # Skill + task assembly (WI-16). Skill resolution may raise ConfigurationError
+    # when the DLC plugin cache is not installed. For --dry-run we tolerate the
+    # missing cache and emit a synthetic placeholder path so dry-run remains
+    # usable in environments without the plugin installed (CI, fresh clones).
+    # Real dispatch still requires the cache and surfaces the original error.
+    try:
+        skill_path = resolve_skill_path(verb)
+    except ConfigurationError:
+        if not args.dry_run:
+            raise
+        skill_path = _synthetic_dry_run_skill_path(verb)
     verb_args: dict[str, object] = {}
     if args.source is not None:
         verb_args["source"] = str(args.source)
