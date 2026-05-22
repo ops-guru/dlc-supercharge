@@ -147,3 +147,91 @@ class TestWriteJsonUtf8Lf:
         target = tmp_path / "f.json"
         write_json_utf8_lf(target, {"a": 1})
         assert write_json_utf8_lf(target, {"a": 1}) is False
+
+
+# --- WI-20: byte-equality guard, mtime preservation -------------------------
+
+
+class TestByteEqualityGuard:
+    """NFR-4 atomic write byte-equality guard tests (Epic 2b WI-20).
+
+    Verify the idempotence guard in :func:`atomic_write_bytes` actually
+    prevents file mutation when proposed content equals on-disk bytes,
+    AND that mtime is preserved across the no-op (Kiro hook self-fire
+    avoidance — if the file's mtime doesn't change, downstream watchers
+    don't refire).
+    """
+
+    def test_second_write_returns_false_when_bytes_equal(self, tmp_path: Path) -> None:
+        target = tmp_path / "f.txt"
+        atomic_write_bytes(target, b"identical content\n")
+        result = atomic_write_bytes(target, b"identical content\n")
+        assert result is False
+
+    def test_second_write_returns_true_when_bytes_change(self, tmp_path: Path) -> None:
+        target = tmp_path / "f.txt"
+        atomic_write_bytes(target, b"first\n")
+        result = atomic_write_bytes(target, b"second\n")
+        assert result is True
+        assert target.read_bytes() == b"second\n"
+
+    def test_no_op_write_preserves_mtime(self, tmp_path: Path) -> None:
+        """Critical hook-loop safety guarantee: no mtime change on byte-equal write."""
+        import time
+
+        target = tmp_path / "f.txt"
+        atomic_write_bytes(target, b"content\n")
+        first_mtime = target.stat().st_mtime_ns
+
+        # Wait a measurable interval, then re-write the same bytes.
+        time.sleep(0.05)
+        result = atomic_write_bytes(target, b"content\n")
+        second_mtime = target.stat().st_mtime_ns
+
+        assert result is False
+        assert first_mtime == second_mtime, (
+            "byte-equal write must NOT change mtime "
+            "(otherwise Kiro fileEdited hooks re-fire in a loop)"
+        )
+
+    def test_mutation_write_updates_mtime(self, tmp_path: Path) -> None:
+        """Sanity check: a real mutation DOES update mtime."""
+        import time
+
+        target = tmp_path / "f.txt"
+        atomic_write_bytes(target, b"A\n")
+        first_mtime = target.stat().st_mtime_ns
+        time.sleep(0.05)
+        atomic_write_bytes(target, b"B\n")
+        second_mtime = target.stat().st_mtime_ns
+        assert second_mtime > first_mtime
+
+    def test_utf8_lf_byte_equality_guard(self, tmp_path: Path) -> None:
+        """atomic_write_utf8_lf inherits the byte-equality guard."""
+        target = tmp_path / "f.md"
+        atomic_write_utf8_lf(target, "line one\nline two\n")
+        result = atomic_write_utf8_lf(target, "line one\nline two\n")
+        assert result is False
+
+    def test_utf8_lf_normalizes_crlf_then_byte_eq_holds(self, tmp_path: Path) -> None:
+        """CRLF input → normalized → idempotent on LF-equivalent re-write."""
+        target = tmp_path / "f.md"
+        # First write with LF.
+        atomic_write_utf8_lf(target, "a\nb\n")
+        # Second write with CRLF should normalize to LF and detect no change.
+        result = atomic_write_utf8_lf(target, "a\r\nb\r\n")
+        assert result is False
+
+    def test_json_byte_equality_skips_mtime_change(self, tmp_path: Path) -> None:
+        """JSON writer also preserves mtime on byte-equal no-op."""
+        import time
+
+        target = tmp_path / "f.json"
+        payload = {"key": "value", "n": 42}
+        write_json_utf8_lf(target, payload)
+        first_mtime = target.stat().st_mtime_ns
+        time.sleep(0.05)
+        result = write_json_utf8_lf(target, payload)
+        second_mtime = target.stat().st_mtime_ns
+        assert result is False
+        assert first_mtime == second_mtime

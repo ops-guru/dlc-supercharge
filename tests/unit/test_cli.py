@@ -95,17 +95,68 @@ def test_cli_dry_run_propagates_budget_to_args(
     assert payload["args"][idx + 1] == "7.5"
 
 
-# --- live dispatch sentinel (Epic 1 stub) -----------------------------------
+# --- live dispatch (Epic 2b WI-16: real claude subprocess invocation) -------
 
 
-def test_cli_live_dispatch_returns_not_implemented(
+def test_cli_live_dispatch_invokes_claude(
     capsys: pytest.CaptureFixture[str],
     plugin_cache_root_mock: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Non-dry-run dispatch is deferred to Epic 2 WI-16; must exit 2."""
+    """Live dispatch (Epic 2b WI-16) invokes claude and emits BRIDGE_OK on success.
+
+    A mocked ``subprocess.run`` stands in for ``claude``; verifies the
+    EXIT_NOT_IMPLEMENTED sentinel from Epic 1 has been REMOVED.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".dlc").mkdir()
+
+    import subprocess
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(list(argv))
+        # Mimic CompletedProcess with empty stdout/stderr and rc=0.
+        return subprocess.CompletedProcess(
+            args=argv, returncode=0, stdout="", stderr=""
+        )
+
+    monkeypatch.setattr("dlc_bridge.cli.subprocess.run", fake_run)
+
     rc = main(["analyze-requirements"])
-    assert rc == 2
-    assert "NOT_IMPLEMENTED" in capsys.readouterr().err
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "BRIDGE_EXIT=0" in out
+    assert calls, "subprocess.run should have been called at least once"
+    # Argv must be a LIST (not a string) and start with 'claude -p ...'.
+    assert isinstance(calls[0], list)
+    assert calls[0][0] == "claude"
+    assert "-p" in calls[0]
+    assert "--append-system-prompt-file" in calls[0]
+    assert "--permission-mode" in calls[0]
+    assert "bypassPermissions" in calls[0]
+
+
+def test_cli_live_dispatch_does_not_emit_not_implemented(
+    capsys: pytest.CaptureFixture[str],
+    plugin_cache_root_mock: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Epic 1 EXIT_NOT_IMPLEMENTED sentinel must no longer be emitted."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".dlc").mkdir()
+
+    import subprocess
+    monkeypatch.setattr(
+        "dlc_bridge.cli.subprocess.run",
+        lambda argv, **kw: subprocess.CompletedProcess(argv, 0, "", ""),
+    )
+    rc = main(["analyze-requirements"])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "NOT_IMPLEMENTED" not in err
 
 
 # --- path-traversal validation (FR-3, WI-17) -------------------------------
