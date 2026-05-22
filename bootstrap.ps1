@@ -29,6 +29,12 @@
 .PARAMETER Quiet
     Suppress non-error output and the post-install playbook.
 
+.PARAMETER NoAutoInstallUv
+    Skip Phase 1.5 auto-install of `uv` (Astral Python launcher). If `uv` is
+    not already on PATH, the bootstrap exits 9 with a manual-install URL.
+    Use this in corporate environments that prohibit `irm | iex`-style
+    installer scripts (per NFR-8).
+
 .EXAMPLE
     .\bootstrap.ps1
     Install into the current directory.
@@ -40,6 +46,10 @@
 .EXAMPLE
     .\bootstrap.ps1 -Force
     Re-install over existing files, overwriting any user modifications to DLC files.
+
+.EXAMPLE
+    .\bootstrap.ps1 -NoAutoInstallUv
+    Install without attempting to auto-install `uv` if missing (corp policy mode).
 #>
 [CmdletBinding()]
 param(
@@ -49,7 +59,8 @@ param(
     [switch]$WithDlcConfig,
     [switch]$NoSmokeTests,
     [switch]$Quiet,
-    [switch]$NoRegisterKiroPower
+    [switch]$NoRegisterKiroPower,
+    [switch]$NoAutoInstallUv
 )
 
 $ErrorActionPreference = 'Stop'
@@ -195,6 +206,44 @@ function Test-Prereqs {
     Write-Ok "Prereq checks passed"
 }
 
+# === Phase 1.5: uv detection + auto-install (FR-20, NFR-8) ===
+function Resolve-Uv {
+    Write-Step "Phase 1.5: Detect uv (Astral Python launcher)"
+    if (Get-Command uv -ErrorAction SilentlyContinue) {
+        Write-Ok "  uv on PATH: $((Get-Command uv).Source)"
+        return
+    }
+    # Common post-install location
+    $userBin = Join-Path $env:USERPROFILE '.local\bin\uv.exe'
+    if (Test-Path $userBin) {
+        Write-Warn "  uv found at $userBin but not on PATH"
+        Write-Warn "  Re-open the terminal (and Kiro) after install to pick it up; absolute path will be used in this session"
+        $env:PATH = "$(Split-Path $userBin);" + $env:PATH
+        return
+    }
+    if ($NoAutoInstallUv) {
+        Write-Err "uv not found and -NoAutoInstallUv set. Install manually:"
+        Write-Err "  irm https://astral.sh/uv/install.ps1 | iex"
+        Write-Err "  https://docs.astral.sh/uv/getting-started/installation/"
+        exit 9
+    }
+    Write-Step "  uv not found; auto-installing via https://astral.sh/uv/install.ps1"
+    try {
+        irm https://astral.sh/uv/install.ps1 | iex
+    } catch {
+        Write-Err "  uv install failed: $($_.Exception.Message)"
+        Write-Err "  Install manually: irm https://astral.sh/uv/install.ps1 | iex"
+        exit 9
+    }
+    # Re-check PATH (installer mutates user-level PATH but current session needs refresh)
+    $env:PATH = "$(Join-Path $env:USERPROFILE '.local\bin');" + $env:PATH
+    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+        Write-Err "  uv installed but not on PATH; re-open terminal and re-run bootstrap"
+        exit 9
+    }
+    Write-Ok "  uv installed at $((Get-Command uv).Source)"
+}
+
 # === Phase 3: Idempotency check ===
 function Test-Idempotent {
     Write-Step "Phase 3: Idempotency check"
@@ -289,6 +338,33 @@ function Copy-Bundle {
     }
 }
 
+# === Phase 4.5: uv sync (FR-20) ===
+function Invoke-UvSync {
+    Write-Step "Phase 4.5: Sync Python environment with uv"
+    # If the target has a pyproject.toml, sync there; otherwise sync from the bundle root.
+    $syncRoot = if (Test-Path (Join-Path $Script:Target 'pyproject.toml')) {
+        $Script:Target
+    } else {
+        $BundleRoot
+    }
+    if (-not (Test-Path (Join-Path $syncRoot 'pyproject.toml'))) {
+        Write-Warn "  No pyproject.toml at $syncRoot; skipping uv sync (will be needed once the Python bridge bundle ships)"
+        return
+    }
+    Push-Location $syncRoot
+    try {
+        & uv sync 2>&1 | ForEach-Object { Write-Host "  $_" }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "  uv sync failed (exit $LASTEXITCODE) at $syncRoot"
+            Write-Err "  Check Python availability: uv python install 3.11"
+            exit 9
+        }
+        Write-Ok "  uv sync complete ($syncRoot)"
+    } finally {
+        Pop-Location
+    }
+}
+
 # === Phase 5: Optional .dlc.config.json (FR-19) ===
 function Write-DlcConfig {
     Write-Step "Phase 5: Optional .dlc.config.json"
@@ -350,26 +426,43 @@ function Invoke-SmokeTests {
         $failures++
     }
 
-    # Test 2: bridge dry-run
-    $bridgePath = Join-Path $Script:Target '.kiro\scripts\dlc-bridge.ps1'
-    if (Test-Path $bridgePath) {
+    # Test 2: bridge dry-run — prefer the Python bridge (v2.0), fall back to v1.1 PS.
+    $pyBridgeOk = $false
+    if (Get-Command uv -ErrorAction SilentlyContinue) {
         try {
-            $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $bridgePath map-codebase -Target . -DryRun 2>&1
+            $out = & uv run dlc-bridge help 2>&1
             $exit = $LASTEXITCODE
-            $jsonLine = $out | Where-Object { $_ -match '^\{.*"status".*\}$' } | Select-Object -First 1
-            if ($exit -eq 0 -and $jsonLine) {
-                Write-Ok "  Bridge dry-run: exit 0, JSON returned"
+            if ($exit -eq 0 -and ($out -join "`n") -match 'DLC SuperCharge bridge') {
+                Write-Ok "  Python bridge smoke: exit 0, 'DLC SuperCharge bridge' detected"
+                $pyBridgeOk = $true
             } else {
-                Write-Err "  Bridge dry-run: exit=$exit, JSON detected=$(if ($jsonLine) {'yes'} else {'no'})"
-                $failures++
+                Write-Warn "  Python bridge smoke: exit=$exit (will try v1.1 fallback)"
             }
         } catch {
-            Write-Err "  Bridge dry-run failed: $($_.Exception.Message)"
+            Write-Warn "  Python bridge smoke failed: $($_.Exception.Message) (will try v1.1 fallback)"
+        }
+    }
+    if (-not $pyBridgeOk) {
+        $bridgePath = Join-Path $Script:Target '.kiro\scripts\dlc-bridge.ps1'
+        if (Test-Path $bridgePath) {
+            try {
+                $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $bridgePath map-codebase -Target . -DryRun 2>&1
+                $exit = $LASTEXITCODE
+                $jsonLine = $out | Where-Object { $_ -match '^\{.*"status".*\}$' } | Select-Object -First 1
+                if ($exit -eq 0 -and $jsonLine) {
+                    Write-Ok "  v1.1 bridge dry-run (fallback): exit 0, JSON returned"
+                } else {
+                    Write-Err "  Bridge dry-run failed for both Python and v1.1: PS exit=$exit"
+                    $failures++
+                }
+            } catch {
+                Write-Err "  Bridge dry-run failed (both v2.0 Python and v1.1 PS): $($_.Exception.Message)"
+                $failures++
+            }
+        } else {
+            Write-Err "  Bridge dry-run: neither uv+dlc-bridge nor $bridgePath available"
             $failures++
         }
-    } else {
-        Write-Err "  Bridge dry-run: bridge script not at $bridgePath"
-        $failures++
     }
 
     # Test 3: POWER.md frontmatter has 5 keys
@@ -453,8 +546,10 @@ function Register-KiroPower {
 try {
     Resolve-Target
     Test-Prereqs
+    Resolve-Uv
     Test-Idempotent | Out-Null
     Copy-Bundle
+    Invoke-UvSync
     Write-DlcConfig
     Invoke-SmokeTests
     Register-KiroPower

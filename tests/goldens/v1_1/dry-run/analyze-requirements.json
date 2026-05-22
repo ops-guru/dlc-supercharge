@@ -1,0 +1,10 @@
+{
+  "args": {
+    "source": "."
+  },
+  "assembledPrompt": "You have been provided with the analyze-requirements SKILL.md as your system prompt.\n\nExecute the SKILL.md's complete workflow.\n\nSource (requirements input): .\nSlug for output scoping: {slug}\n\nThe workflow should:\n  1. Parse the source (GitHub issue, PRD, free-form description, or existing discovery.md).\n  2. Build a structured PRD with FR-x / NFR-x IDs, MoSCoW priorities,\n     user stories, RAID log, and gap analysis grounded in the current codebase.\n  3. Run a concerns-heuristics scan (security/UX/a11y/compliance/vulnerable populations).\n\nRequired artifact:\n  - .dlc/{slug}/requirements.prd.md\n\nWhen done, print exactly: ANALYZE_REQUIREMENTS_DONE\nThen list:\n  - Number of FRs (Must / Should / Could / Won't)\n  - Number of NFRs\n  - Recommended formal reviews (security/ux/a11y/perf) per the concerns scan\n",
+  "verb": "analyze-requirements",
+  "command": "claude -p --append-system-prompt-file \"C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\analyze-requirements\\SKILL.md\" --permission-mode bypassPermissions --max-budget-usd 5 <task>",
+  "status": "dry-run",
+  "skillPath": "C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\analyze-requirements\\SKILL.md"
+}

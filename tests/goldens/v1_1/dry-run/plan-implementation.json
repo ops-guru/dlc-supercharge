@@ -1,0 +1,10 @@
+{
+  "args": {
+    "source": "."
+  },
+  "assembledPrompt": "You have been provided with the plan-implementation SKILL.md as your system prompt.\n\nExecute the SKILL.md's complete workflow.\n\nSlug: {slug}\n\nInputs (read from disk):\n  - .dlc/{slug}/designs/tech-design.md (Work Item Registry is the primary task source)\n  - .dlc/{slug}/plans/_iteration-state.md (if exists - skip already-delivered Epics)\n\nThe workflow should:\n  1. Parse the tech design's Work Item Registry (WI-x table).\n  2. Group work items into Epics (5-15 tasks per Epic, S-L combined effort).\n  3. Select the next Epic from the backlog.\n  4. Decompose into atomic, agent-executable tasks (T-NNN per Epic) with\n     exact file paths, acceptance criteria, and test commands.\n  5. Verify dependencies form a DAG.\n\nRequired artifacts:\n  - .dlc/{slug}/plans/epic-NNN.plan.md (the new Epic plan)\n  - .dlc/{slug}/plans/_iteration-state.md (updated with new Epic + backlog)\n\nWhen done, print exactly: PLAN_IMPLEMENTATION_DONE\nThen list: Epic number, task count, total effort, dependencies on prior Epics.\n",
+  "verb": "plan-implementation",
+  "command": "claude -p --append-system-prompt-file \"C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\plan-implementation\\SKILL.md\" --permission-mode bypassPermissions --max-budget-usd 5 <task>",
+  "status": "dry-run",
+  "skillPath": "C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\plan-implementation\\SKILL.md"
+}

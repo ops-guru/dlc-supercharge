@@ -1,0 +1,9 @@
+{
+  ".kiro/specs/add-oauth/requirements.md": "add-oauth",
+  ".kiro/specs/add-oauth/design.md": "add-oauth",
+  ".kiro/specs/add-oauth/tasks.md": "add-oauth",
+  ".kiro\\specs\\add-oauth\\requirements.md": "add-oauth",
+  ".kiro/specs/dlc-supercharge-python-migration/requirements.md": "dlc-supercharge-python-migration",
+  ".dlc/my-slug/state.md": "my-slug",
+  ".dlc/my-slug/plans/epic-001.plan.md": "my-slug"
+}
