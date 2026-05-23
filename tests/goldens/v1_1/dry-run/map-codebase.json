@@ -1,0 +1,10 @@
+{
+  "args": {
+    "target": "."
+  },
+  "assembledPrompt": "You have been provided with the map-codebase SKILL.md as your system prompt.\n\nExecute the SKILL.md's complete workflow on the subsystem at:\n  .\n\nThe workflow should dispatch 4 parallel explore-fast agents to map:\n  - Components and their responsibilities\n  - Dependencies (internal + external)\n  - Conventions in use\n  - Test infrastructure and integration points\n\nWrite the architectural map to:\n  .dlc/maps/<sanitized-target>.map.md\n\nWhen done, print exactly: MAP_CODEBASE_DONE\nThen print the artifact path.\n\nLighter scan than reverse-engineer-kb - this is the right tool for\nsingle-subsystem mapping when the surrounding code is already understood.\n",
+  "verb": "map-codebase",
+  "command": "claude -p --append-system-prompt-file \"C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\map-codebase\\SKILL.md\" --permission-mode bypassPermissions --max-budget-usd 5 <task>",
+  "status": "dry-run",
+  "skillPath": "C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\map-codebase\\SKILL.md"
+}

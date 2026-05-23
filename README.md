@@ -2,6 +2,8 @@
 
 A Kiro Power that bridges the `/dlc:` Claude Code plugin into Kiro IDE's AIDLC workflow. Adds 14 hooks, 8 subagents, and a state-coordinated D-minus integration pattern with one-command install.
 
+**v2.0.0** ships the runtime as a single Python 3.11+ codebase under `src/dlc_bridge/`. The v1.1 PowerShell + POSIX bash dual-stack has been replaced. See `CHANGELOG.md` for the full BREAKING-changes manifest.
+
 ## Install
 
 ### Option 1 — Local clone + bootstrap (recommended)
@@ -35,16 +37,19 @@ The `--from-git` flag clones the Power into a temp dir, runs install, cleans up 
 Copy bundle contents into target workspace:
 - `dist/hooks/*.kiro.hook` → `<workspace>/.kiro/hooks/`
 - `dist/agents/*.md` → `<workspace>/.kiro/agents/`
-- `dist/scripts/*` → `<workspace>/.kiro/scripts/`
 - `dist/templates/verb-tasks/*.txt` → `<workspace>/.kiro/powers/dlc-supercharge/templates/verb-tasks/`
 - `dist/templates/state.md.template` → `<workspace>/.kiro/powers/dlc-supercharge/templates/`
 - `steering/dlc-augment.md` → `<workspace>/.kiro/steering/`
+
+After copying, run `uv sync` from the workspace root to install the Python runtime (or let `bootstrap.{ps1,sh}` Phase 4.5 do it).
 
 ### Prerequisites
 
 The installer checks:
 - `claude` CLI on PATH (`claude --version` exits 0)
 - `/dlc:` plugin loaded (`~/.claude/plugins/cache/dlc-automation/dlc/<version>/skills/`)
+- **`uv` (Astral) launcher** — auto-installed by bootstrap Phase 1.5 unless `-NoAutoInstallUv` / `--no-auto-install-uv` is passed. Opt-out flow exits with code 9 and the manual-install URL.
+- **Python 3.11+** — uv-managed; `uv python install` runs on first `uv sync` if not already present.
 - PowerShell execution policy (Windows): RemoteSigned, Unrestricted, or Bypass
 - `gh` CLI on PATH (warn only — needed for `babysit-pr`, `hotfix-revert`)
 - Anthropic auth: `ANTHROPIC_API_KEY` env var OR `~/.claude/credentials`
@@ -52,9 +57,24 @@ The installer checks:
 
 Fail-stop on any required prereq. Warn-only for optional ones.
 
+## Architecture
+
+The runtime is a Python package under `src/dlc_bridge/`:
+
+- `cli.py` — entry point for `uv run dlc-bridge <verb> ...`; argument validation, hash-cache check, retry-wrapped `claude -p` invocation, foreground/background dispatch.
+- `verbs.py` — verb → skill-path resolver and prompt assembly.
+- `cache.py` — FR-8/9/10 hash-cache with `cache_version: 2`.
+- `status.py` — FR-6 status-file lifecycle (`running` → `complete`/`error`/`cancelled`) at `.dlc/_bridge-jobs/<jobId>.status.json`.
+- `retry.py` — FR-7 exponential backoff (3 attempts, 2s/8s/32s) on 429/5xx/timeout/connection-reset.
+- `background_runner.py` — FR-4 detached-child wrapper (Windows `DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP`; POSIX `start_new_session=True`).
+- `util/` — `encoding`, `hash`, `slug`, `mode`, `emit`, `state`, `id_propagate`, `epic_inject`, `debounce`, `power`.
+- `hooks/` — 14 hook modules (one per `.kiro.hook` JSON), invokable as `uv run python -m dlc_bridge.hooks.<name>`.
+
+`tests/` holds the pytest suite (`unit/`, `integration/`, `parity/`) with `--cov-fail-under=80` gating.
+
 ## Verbs
 
-The bridge supports 12 verbs, each routing to a `/dlc:` skill:
+The bridge supports 12 user-facing verbs (plus 4 review-* internal dispatches), each routing to a `/dlc:` skill:
 
 | Verb | Skill | Purpose |
 |---|---|---|
@@ -71,12 +91,23 @@ The bridge supports 12 verbs, each routing to a `/dlc:` skill:
 | `review-pr` | `/dlc:review-pr` | Standalone PR review |
 | `stabilize-pr` | `/dlc:stabilize-pr` | CI triage without full review |
 
-Invoke via bridge:
-```powershell
-.kiro\scripts\dlc-bridge.ps1 <verb> -Target <path> [-DryRun] [-Background] [-MaxBudgetUsd 5]
+Invoke via the console-script entry:
+
+```sh
+uv run dlc-bridge <verb> --target <path> [--dry-run] [--background] [--max-budget-usd 5]
 ```
 
-Or fire the matching Kiro hook from the Agent Hooks panel (each hook prompt assembles the bridge invocation and surfaces JSON output back to chat).
+Or fire the matching Kiro hook from the Agent Hooks panel (each hook prompt assembles the bridge invocation and surfaces JSON output back to chat). The hooks invoke either `uv run dlc-bridge ...` or `uv run python -m dlc_bridge.hooks.<name> ...`.
+
+## Test
+
+```sh
+uv run pytest tests/ --cov=src/dlc_bridge
+```
+
+Runs the full unit + integration + parity suite (~501 tests, ~37 s on a warm cache). Parity tests under `tests/parity/` cross-validate against v1.1 PS where `powershell.exe` / `pwsh` is on PATH (skip cleanly elsewhere). Coverage gate is 80%.
+
+`uv run pytest tests/ -m parity` runs only the FR-19 parity suite.
 
 ## Configuration
 
@@ -95,7 +126,7 @@ Optional `<workspace>/.dlc.config.json` (template at `dist/config/dlc.config.jso
 }
 ```
 
-`defaults.aidlcDepth` maps to interaction mode (read by `mode-resolve.{ps1,sh}` helper):
+`defaults.aidlcDepth` maps to interaction mode (read by `dlc_bridge.util.mode`):
 - `light` → `interactive` (more user confirmation)
 - `medium` → `confident` (default)
 - `deep` → `autopilot` (minimal interruption)
@@ -106,10 +137,14 @@ If `.dlc.config.json` is absent, `confident` is the default.
 
 See `.kiro/DLC-SUPERCHARGE-README.md` (workspace-side, installed by bootstrap) for the full troubleshooting guide.
 
+See `SMOKE-TEST-CHECKLIST.md` for the fresh-VM verification flow that maintainers should run before tagging a release.
+
 ## License
 
 MIT. See `LICENSE` in this directory (or root of the Power-bundle repo).
 
-## Architecture
+## More
 
-Two execution lanes coordinated through `.dlc/<slug>/state.md`. Full design at the source project's `.dlc/designs/2026-05-19-dlc-supercharge.md`. Hackathon dress rehearsal at `HACKATHON-DRESS-REHEARSAL.md`.
+* Hackathon dress rehearsal: `HACKATHON-DRESS-REHEARSAL.md` (v2.0 addendum at top)
+* Tech design: `.dlc/dlc-supercharge-python-migration/designs/tech-design.md` (the v1.1 → v2.0 migration plan)
+* PRD: `.dlc/dlc-supercharge-python-migration/requirements.prd.md`

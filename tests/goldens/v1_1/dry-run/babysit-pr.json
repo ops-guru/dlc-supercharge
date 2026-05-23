@@ -1,0 +1,11 @@
+{
+  "args": {
+    "pr": 1,
+    "mode": "default"
+  },
+  "assembledPrompt": "You have been provided with the babysit-pr SKILL.md as your system prompt.\n\nExecute the SKILL.md's auto-loop on PR #1 with mode: default.\n\nThe workflow should:\n  1. Label the PR for Claude review (if not already labeled).\n  2. Poll until the review posts.\n  3. Hand off to stabilize-pr to triage comments and fix CI.\n  4. Re-label for a follow-up review pass if new comments warrant it.\n  5. Loop up to 3 no-progress cycles. In 'aggressive' mode, reschedule\n     itself 2 hours later if still unresolved.\n  6. Exit when: PR is merge-ready, all retry budgets exhausted, or human\n     escalation is needed (write .dlc/<slug>/escalation-context.md).\n\nRequired artifacts:\n  - .dlc/<slug>/_babysit.log\n  - PR comments posted directly via gh CLI\n\nWhen done, print exactly: BABYSIT_PR_DONE\nThen surface the final status: merge-ready / escalated / retry-budget-exhausted.\n",
+  "verb": "babysit-pr",
+  "command": "claude -p --append-system-prompt-file \"C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\babysit-pr\\SKILL.md\" --permission-mode bypassPermissions --max-budget-usd 5 <task>",
+  "status": "dry-run",
+  "skillPath": "C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\babysit-pr\\SKILL.md"
+}

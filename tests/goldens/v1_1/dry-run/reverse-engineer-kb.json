@@ -1,0 +1,12 @@
+{
+  "args": {
+    "max_files": 500,
+    "target": ".",
+    "mode": "default"
+  },
+  "assembledPrompt": "You have been provided with the reverse-engineer-kb SKILL.md as your system prompt.\n\nExecute the SKILL.md's complete workflow on the codebase at:\n  .\n\nApply the 3-pass scan as documented in the SKILL.md. Use mode: default.\nCap the scan at 500 files.\n\nWrite outputs to: ./.dlc/kb/\n\nRequired artifacts:\n  - ./.dlc/kb/index.json (schema v1, valid JSON, all required keys)\n  - ./.dlc/kb/modules/MOD-*.md (at least one)\n  - ./.dlc/kb/architecture.md (or a defensible deferred-note if the workflow defers)\n\nWhen done, print exactly: REVERSE_ENGINEER_KB_DONE\nThen list the artifact paths you created.\n\nIf you cannot write to the target path, do NOT print the done token - instead\nexplain the blocker clearly so the bridge can surface it to the user.\n",
+  "verb": "reverse-engineer-kb",
+  "command": "claude -p --append-system-prompt-file \"C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\reverse-engineer-kb\\SKILL.md\" --permission-mode bypassPermissions --max-budget-usd 5 <task>",
+  "status": "dry-run",
+  "skillPath": "C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\reverse-engineer-kb\\SKILL.md"
+}

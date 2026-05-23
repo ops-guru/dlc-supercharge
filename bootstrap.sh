@@ -19,6 +19,7 @@ FORCE=0
 WITH_DLC_CONFIG=0
 NO_SMOKE_TESTS=0
 NO_REGISTER_KIRO_POWER=0
+NO_AUTO_INSTALL_UV=0
 QUIET=0
 CLONE_DIR=""
 
@@ -29,13 +30,17 @@ Install DLC SuperCharge into a target Kiro workspace.
 Usage: bootstrap.sh [options]
 
 Options:
-  --into <path>           Target workspace directory (default: current dir)
-  --from-git <url>        Clone the Power from a git URL, install, then clean up
-  --force                 Overwrite pre-existing DLC files
-  --with-dlc-config       Write .dlc.config.json from template
-  --no-smoke-tests        Skip Phase 6 smoke tests
-  --quiet                 Suppress non-error output and playbook
-  -h, --help              Show this help
+  --into <path>             Target workspace directory (default: current dir)
+  --from-git <url>          Clone the Power from a git URL, install, then clean up
+  --force                   Overwrite pre-existing DLC files
+  --with-dlc-config         Write .dlc.config.json from template
+  --no-smoke-tests          Skip Phase 6 smoke tests
+  --no-register-kiro-power  Skip Phase 6.5 Kiro Powers registration
+  --no-auto-install-uv      Skip Phase 1.5 auto-install of uv (Astral Python launcher).
+                            If uv is missing, exit 9 with manual-install URL.
+                            Use in corporate envs that prohibit curl|sh installers (NFR-8).
+  --quiet                   Suppress non-error output and playbook
+  -h, --help                Show this help
 
 Exit codes: 0 success, 8 smoke fail, 9 prereq fail, 10 file conflict
 EOF
@@ -50,6 +55,7 @@ while [ "$#" -gt 0 ]; do
         --with-dlc-config) WITH_DLC_CONFIG=1; shift;;
         --no-smoke-tests)  NO_SMOKE_TESTS=1; shift;;
         --no-register-kiro-power) NO_REGISTER_KIRO_POWER=1; shift;;
+        --no-auto-install-uv) NO_AUTO_INSTALL_UV=1; shift;;
         --quiet)           QUIET=1; shift;;
         -h|--help)         usage; exit 0;;
         *) printf '[bootstrap] ERROR: unknown option: %s\n' "$1" >&2; usage; exit 9;;
@@ -191,6 +197,42 @@ phase2_prereqs() {
     ok "Prereq checks passed"
 }
 
+# === Phase 1.5: uv detection + auto-install (FR-20, NFR-8) ===
+phase1_5_resolve_uv() {
+    log "Phase 1.5: Detect uv (Astral Python launcher)"
+    if command -v uv >/dev/null 2>&1; then
+        ok "  uv on PATH: $(command -v uv)"
+        return
+    fi
+    # Common post-install location on POSIX systems
+    local user_bin="$HOME/.local/bin/uv"
+    if [ -x "$user_bin" ]; then
+        warn "  uv found at $user_bin but not on PATH"
+        warn "  Re-open terminal (and Kiro) after install; using session-local PATH for now"
+        export PATH="$HOME/.local/bin:$PATH"
+        return
+    fi
+    if [ "$NO_AUTO_INSTALL_UV" -eq 1 ]; then
+        err "uv not found and --no-auto-install-uv set. Install manually:"
+        err "  curl -LsSf https://astral.sh/uv/install.sh | sh"
+        err "  https://docs.astral.sh/uv/getting-started/installation/"
+        exit 9
+    fi
+    log "  uv not found; auto-installing via https://astral.sh/uv/install.sh"
+    if ! curl -LsSf https://astral.sh/uv/install.sh | sh; then
+        err "  uv install failed"
+        err "  Install manually: curl -LsSf https://astral.sh/uv/install.sh | sh"
+        exit 9
+    fi
+    # Refresh PATH to pick up new install
+    export PATH="$HOME/.local/bin:$PATH"
+    if ! command -v uv >/dev/null 2>&1; then
+        err "  uv installed but not on PATH; re-open terminal and re-run bootstrap"
+        exit 9
+    fi
+    ok "  uv installed at $(command -v uv)"
+}
+
 # === Phase 3: Idempotency check ===
 phase3_idempotent() {
     log "Phase 3: Idempotency check"
@@ -275,6 +317,32 @@ phase4_copy() {
     fi
 }
 
+# === Phase 4.5: uv sync (FR-20) ===
+phase4_5_uv_sync() {
+    log "Phase 4.5: Sync Python environment with uv"
+    local sync_root
+    if [ -f "$TARGET/pyproject.toml" ]; then
+        sync_root="$TARGET"
+    else
+        sync_root="$BUNDLE_ROOT"
+    fi
+    if [ ! -f "$sync_root/pyproject.toml" ]; then
+        warn "  No pyproject.toml at $sync_root; skipping uv sync (will be needed once the Python bridge bundle ships)"
+        return
+    fi
+    (
+        cd "$sync_root" && uv sync 2>&1 | sed 's/^/  /'
+        exit ${PIPESTATUS[0]}
+    )
+    local rc=$?
+    if [ "$rc" -ne 0 ]; then
+        err "  uv sync failed (exit $rc) at $sync_root"
+        err "  Check Python availability: uv python install 3.11"
+        exit 9
+    fi
+    ok "  uv sync complete ($sync_root)"
+}
+
 # === Phase 5: Optional .dlc.config.json (FR-19) ===
 phase5_config() {
     log "Phase 5: Optional .dlc.config.json"
@@ -334,21 +402,35 @@ phase6_smoke() {
         failures=$((failures+1))
     fi
 
-    # Test 2: bridge dry-run
-    local bridge_path="$TARGET/.kiro/scripts/dlc-bridge.sh"
-    if [ -f "$bridge_path" ]; then
-        local out
-        out=$(cd "$TARGET" && bash "$bridge_path" map-codebase --target . --dry-run 2>&1)
-        local exit_code=$?
-        if [ "$exit_code" -eq 0 ] && echo "$out" | grep -qE '"status":[[:space:]]*"dry-run"'; then
-            ok "  Bridge dry-run: exit 0, JSON returned"
+    # Test 2: bridge dry-run — prefer the Python bridge (v2.0), fall back to v1.1 bash.
+    local py_bridge_ok=0
+    if command -v uv >/dev/null 2>&1; then
+        local py_out py_exit
+        py_out=$(uv run dlc-bridge help 2>&1)
+        py_exit=$?
+        if [ "$py_exit" -eq 0 ] && echo "$py_out" | grep -q 'DLC SuperCharge bridge'; then
+            ok "  Python bridge smoke: exit 0, 'DLC SuperCharge bridge' detected"
+            py_bridge_ok=1
         else
-            err "  Bridge dry-run: exit=$exit_code, JSON detected=$(echo "$out" | grep -cE '"status":[[:space:]]*"dry-run"')"
+            warn "  Python bridge smoke: exit=$py_exit (will try v1.1 fallback)"
+        fi
+    fi
+    if [ "$py_bridge_ok" -eq 0 ]; then
+        local bridge_path="$TARGET/.kiro/scripts/dlc-bridge.sh"
+        if [ -f "$bridge_path" ]; then
+            local out
+            out=$(cd "$TARGET" && bash "$bridge_path" map-codebase --target . --dry-run 2>&1)
+            local exit_code=$?
+            if [ "$exit_code" -eq 0 ] && echo "$out" | grep -qE '"status":[[:space:]]*"dry-run"'; then
+                ok "  v1.1 bridge dry-run (fallback): exit 0, JSON returned"
+            else
+                err "  Bridge dry-run failed for both Python and v1.1: bash exit=$exit_code"
+                failures=$((failures+1))
+            fi
+        else
+            err "  Bridge dry-run: neither uv+dlc-bridge nor $bridge_path available"
             failures=$((failures+1))
         fi
-    else
-        err "  Bridge dry-run: bridge script not at $bridge_path"
-        failures=$((failures+1))
     fi
 
     # Test 3: POWER.md frontmatter has 5 keys
@@ -423,8 +505,10 @@ phase6_5_register_kiro_power() {
 # === Main ===
 phase1_resolve
 phase2_prereqs
+phase1_5_resolve_uv
 phase3_idempotent
 phase4_copy
+phase4_5_uv_sync
 phase5_config
 phase6_smoke
 phase6_5_register_kiro_power

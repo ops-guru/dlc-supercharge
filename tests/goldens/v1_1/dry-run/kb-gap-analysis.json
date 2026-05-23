@@ -1,0 +1,12 @@
+{
+  "args": {
+    "source": ".",
+    "mode": "default",
+    "kb": ".dlc/kb"
+  },
+  "assembledPrompt": "You have been provided with the kb-gap-analysis SKILL.md as your system prompt.\n\nExecute the SKILL.md's complete workflow.\n\nSource (requirements file): .\nKB root: .dlc/kb\nMode: default\n\nThe workflow should:\n  1. Parse the source (xlsx/csv/md-table) into rows.\n  2. Match each row against KB modules at .dlc/kb/modules/MOD-*.md.\n  3. Classify each row as COVERED, PARTIAL, or NOT_COVERED, with KB citations.\n  4. Write a side-by-side copy of the source with 3 new columns:\n     KB_Gap_Status, KB_Ref, KB_Coverage.\n\nRequired artifacts:\n  - <source>_with_gap.xlsx (or .csv matching source extension)\n  - .dlc/<slug>/gap-analysis/aggregated.json\n  - .dlc/<slug>/gap-analysis/report.md\n\nWhen done, print exactly: KB_GAP_ANALYSIS_DONE\nThen list: COVERED N rows, PARTIAL M rows, NOT_COVERED K rows.\n\nIf the KB at .dlc/kb doesn't exist or is empty, do NOT proceed - report the\nblocker and suggest running reverse-engineer-kb first.\n",
+  "verb": "kb-gap-analysis",
+  "command": "claude -p --append-system-prompt-file \"C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\kb-gap-analysis\\SKILL.md\" --permission-mode bypassPermissions --max-budget-usd 5 <task>",
+  "status": "dry-run",
+  "skillPath": "C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\kb-gap-analysis\\SKILL.md"
+}

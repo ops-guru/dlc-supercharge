@@ -1,0 +1,36 @@
+DLC SuperCharge bridge
+
+Verbs:
+  reverse-engineer-kb   Build a KB from a legacy codebase (.dlc/kb/)
+  kb-gap-analysis       Classify requirements vs the KB
+  map-codebase          Fast architectural map of a subsystem
+  babysit-pr            Auto-loop CI stabilization until merge-ready
+  hotfix                Emergency revert or narrow fix
+  review                Standalone PR review
+  review-security       Security review of a design/code
+  stabilize             CI/comment triage only (no review loop)
+  discover              Early-stage product discovery brief
+  reqs                  Analyze requirements to a PRD
+  design                Produce a tech design
+  plan                  Produce an Epic implementation plan
+
+Common options:
+  -Target <path>        Codebase / file path
+  -Source <path>        Requirements doc (xlsx/csv/md)
+  -Kb <path>            KB root (default .dlc/kb)
+  -Mode <name>          full | incremental | patch | aggressive | default
+  -MaxFiles <N>         File cap for KB build (default 500)
+  -Pr <N>               PR number
+  -Background           Run in background, return job ID
+  -DryRun               Print the claude command without executing
+  -Force                Bypass the (slug, verb, hash) cache and always re-run claude
+
+Exit codes (FR-19):
+  0   Success
+  1   Generic / unhandled error
+  2   Claude Code CLI not on PATH
+  3   /dlc: plugin not installed in Claude Code plugin cache
+  4   Invalid input (bad arg, unknown verb, path-traversal, enum mismatch)
+  5   Transient failures persisted past retry budget (3 attempts, 2/8/32s backoff)
+  6   Skill execution error (reserved; currently surfaced as exit 1 from claude)
+  7   Cancelled by user (Ctrl+C / SIGTERM); status file marked 'cancelled'

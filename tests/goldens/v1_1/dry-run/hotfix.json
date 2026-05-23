@@ -1,0 +1,11 @@
+{
+  "args": {
+    "pr": 1,
+    "mode": "default"
+  },
+  "assembledPrompt": "You have been provided with the hotfix SKILL.md as your system prompt.\n\nExecute the SKILL.md's workflow.\n\nMode: default\n  - revert: undo a merged PR via git revert (requires --pr)\n  - new:    apply a narrow fix directly to a target environment (requires --target)\n\nPR to revert (if mode=revert): #1\nTarget environment branch (if mode=new): {target}\nSlug for tracking: {slug}\n\nThe workflow should:\n  1. For revert: create a git revert PR; delegate to prepare-pr.\n  2. For new:    branch from <target>; apply minimal fix; PR back to <target>.\n  3. Skip the full SDLC intake/design phases (this is emergency work).\n  4. Record a finalize-sdlc-compatible state.md marking phases 1, 2, 3 as skipped.\n\nWhen done, print exactly: HOTFIX_DONE\nThen surface the resulting PR URL.\n",
+  "verb": "hotfix",
+  "command": "claude -p --append-system-prompt-file \"C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\hotfix\\SKILL.md\" --permission-mode bypassPermissions --max-budget-usd 5 <task>",
+  "status": "dry-run",
+  "skillPath": "C:\\Users\\amish\\.claude\\plugins\\cache\\dlc-automation\\dlc\\1.17\\skills\\hotfix\\SKILL.md"
+}
