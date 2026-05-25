@@ -185,6 +185,10 @@ def main(argv: list[str] | None = None) -> int:
         _common.emit_terminal("BRIDGE_FAILED")
         return result.returncode
 
+    cached = _common.surface_bridge_cached(result.stdout)
+    if cached:
+        emit.emit_marker("BRIDGE_CACHED", cached)
+
     # Locate produced plan: prefer epic-001, fall back to any epic-*.plan.md.
     plan_dir = slug_path / "plans"
     plan_path: Path | None = None

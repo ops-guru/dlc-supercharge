@@ -173,3 +173,47 @@ def test_dry_run(
     )
     assert rc == 0
     assert invoke_bridge_stub.calls[0]["dry_run"] is True
+
+
+def test_bridge_cached_passthrough(
+    tmp_path: Path,
+    invoke_bridge_stub: BridgeInvocationRecorder,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_state_funcs: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When the plan-implementation bridge short-circuits on cache hit,
+    the hook re-emits ``BRIDGE_CACHED=<path>`` from the subprocess stdout.
+
+    Discovered during v2.0.0 SMOKE-TEST-CHECKLIST section 5 on 2026-05-25.
+    """
+    from dlc_bridge.util import debounce as debounce_mod, id_propagate, epic_inject
+    monkeypatch.setattr(debounce_mod, "check_debounce_keyed", lambda **kw: True)
+    monkeypatch.setattr(id_propagate, "propagate_ids", lambda **kw: {"propagated": []})
+    monkeypatch.setattr(
+        epic_inject, "inject_epic_dir",
+        lambda *a, **kw: {"injected": 0, "skipped": 0, "failed": 0},
+    )
+
+    dlc_root = tmp_path / ".dlc"
+    plan_dir = dlc_root / "myslug" / "plans"
+    plan_dir.mkdir(parents=True)
+    (plan_dir / "epic-001.plan.md").write_text(
+        "---\ntitle: Foundation\nepic: 1\n---\n", encoding="utf-8"
+    )
+
+    tasks = _make_spec_file(tmp_path)
+    invoke_bridge_stub.set_next(
+        returncode=0,
+        stdout="BRIDGE_CACHED=.dlc/myslug/plans/epic-001.plan.md\n",
+    )
+    rc = on_tasks_saved.main(
+        [
+            "--source", str(tasks),
+            "--dlc-root", str(dlc_root),
+            "--debounce-state-path", str(tmp_path / "_fires.json"),
+        ]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "BRIDGE_CACHED=.dlc/myslug/plans/epic-001.plan.md" in out

@@ -54,6 +54,10 @@ def main(argv: list[str] | None = None) -> int:
         _common.emit_terminal("BRIDGE_FAILED")
         return result.returncode
 
+    cached = _common.surface_bridge_cached(result.stdout)
+    if cached:
+        emit.emit_marker("BRIDGE_CACHED", cached)
+
     job_id = _common.parse_bridge_json_field(result.stdout, "jobId")
     if job_id:
         emit.emit_marker("JOB_ID", job_id)

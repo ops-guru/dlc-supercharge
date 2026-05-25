@@ -235,6 +235,10 @@ def _stage_init(args, slug_root) -> int:
         _common.emit_terminal("BRIDGE_FAILED")
         return result.returncode
 
+    cached = _common.surface_bridge_cached(result.stdout)
+    if cached:
+        emit.emit_marker("BRIDGE_CACHED", cached)
+
     tech_design = slug_path / "designs" / "tech-design.md"
     emit.emit_marker("TECH_DESIGN", str(tech_design))
     if tech_design.exists():
