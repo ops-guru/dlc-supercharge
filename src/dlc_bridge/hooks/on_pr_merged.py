@@ -124,6 +124,10 @@ def main(argv: list[str] | None = None) -> int:
         _common.emit_terminal("BRIDGE_FAILED")
         return result.returncode
 
+    cached = _common.surface_bridge_cached(result.stdout)
+    if cached:
+        emit.emit_marker("BRIDGE_CACHED", cached)
+
     # Step 4: mark state complete; optionally delete.
     state_path = slug_path / "state.md"
     if state_path.exists():

@@ -183,3 +183,39 @@ def test_finalize(
     assert rc == 0
     assert "STATE_ADVANCED=3" in out
     assert "HOOK_FINALIZE_DONE" in out
+
+
+def test_bridge_cached_passthrough(
+    tmp_path: Path,
+    invoke_bridge_stub: BridgeInvocationRecorder,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_state_funcs: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When the produce-tech-design bridge short-circuits on cache hit, the
+    hook re-emits ``BRIDGE_CACHED=<path>`` from the subprocess stdout.
+
+    Discovered during v2.0.0 SMOKE-TEST-CHECKLIST section 5 on 2026-05-25.
+    """
+    from dlc_bridge.util import debounce as debounce_mod, id_propagate
+    monkeypatch.setattr(debounce_mod, "check_debounce_keyed", lambda **kw: True)
+    monkeypatch.setattr(id_propagate, "propagate_ids", lambda **kw: {})
+
+    dlc_root = tmp_path / ".dlc"
+    td_dir = dlc_root / "myslug" / "designs"
+    td_dir.mkdir(parents=True)
+    (td_dir / "tech-design.md").write_text("# TD\n", encoding="utf-8")
+    invoke_bridge_stub.set_next(
+        returncode=0,
+        stdout="BRIDGE_CACHED=.dlc/myslug/designs/tech-design.md\n",
+    )
+    rc = on_design_saved.main(
+        [
+            "--source", str(_spec(tmp_path)),
+            "--dlc-root", str(dlc_root),
+            "--debounce-state-path", str(tmp_path / "_fires.json"),
+        ]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "BRIDGE_CACHED=.dlc/myslug/designs/tech-design.md" in out

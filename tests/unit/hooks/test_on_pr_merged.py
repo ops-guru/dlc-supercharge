@@ -163,3 +163,32 @@ def test_dry_run(
     assert rc == 0
     assert "PR_STATE=MERGED" in out
     assert "HOOK_DONE" in out
+
+
+def test_bridge_cached_passthrough(
+    invoke_bridge_stub: BridgeInvocationRecorder,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When the finalize-sdlc bridge short-circuits on cache hit, the hook
+    re-emits ``BRIDGE_CACHED=<path>`` from the subprocess stdout.
+
+    Discovered during v2.0.0 SMOKE-TEST-CHECKLIST section 5 on 2026-05-25.
+    """
+    _patch_gh_view(monkeypatch, 0, {"state": "MERGED", "mergedAt": "now"})
+    root = tmp_path / ".dlc"
+    state_path = make_state_md(root / "myslug", pr=42)
+    state_path.write_text(
+        state_path.read_text(encoding="utf-8")
+        + "\n| 7 | pending |  |  |  |\n| 8 | pending |  |  |  |\n",
+        encoding="utf-8",
+    )
+    invoke_bridge_stub.set_next(
+        returncode=0,
+        stdout="BRIDGE_CACHED=.dlc/myslug/analysis_output/finalization-report.md\n",
+    )
+    rc = on_pr_merged.main(["--pr", "42", "--dlc-root", str(root)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "BRIDGE_CACHED=.dlc/myslug/analysis_output/finalization-report.md" in out

@@ -40,6 +40,10 @@ def main(argv: list[str] | None = None) -> int:
         _common.emit_terminal("BRIDGE_FAILED")
         return result.returncode
 
+    cached = _common.surface_bridge_cached(result.stdout)
+    if cached:
+        emit.emit_marker("BRIDGE_CACHED", cached)
+
     if result.stdout:
         # Flatten the bridge's stdout into one line for the agent to quote.
         single_line = re.sub(r"\r?\n", " | ", result.stdout.strip())

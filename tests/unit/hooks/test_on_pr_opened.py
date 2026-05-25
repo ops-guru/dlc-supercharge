@@ -124,3 +124,31 @@ def test_slug_resolved_from_branch(
     assert rc == 0
     assert "BRANCH=feat/bar" in out
     assert "SLUG=bar" in out
+
+
+def test_bridge_cached_passthrough(
+    invoke_bridge_stub: BridgeInvocationRecorder,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When the bridge short-circuits on cache hit, the hook re-emits
+    ``BRIDGE_CACHED=<path>`` from the subprocess stdout.
+
+    Discovered during v2.0.0 SMOKE-TEST-CHECKLIST section 5 on 2026-05-25.
+    """
+    root = tmp_path / ".dlc"
+    root.mkdir()
+    invoke_bridge_stub.set_next(
+        returncode=0, stdout="BRIDGE_CACHED=.dlc/myslug/babysit-report.md\n"
+    )
+    from dlc_bridge.util import state as state_mod
+    monkeypatch.setattr(state_mod, "init_state", lambda *a, **kw: True)
+    monkeypatch.setattr(state_mod, "record_pr", lambda *a, **kw: True)
+    monkeypatch.setattr(state_mod, "advance_phase", lambda *a, **kw: True)
+    rc = on_pr_opened.main(
+        ["--pr", "42", "--slug", "myslug", "--dlc-root", str(root)]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "BRIDGE_CACHED=.dlc/myslug/babysit-report.md" in out

@@ -63,3 +63,21 @@ def test_dry_run(
     assert rc == 0
     assert invoke_bridge_stub.calls[0]["dry_run"] is True
     assert "HOOK_DONE" in out
+
+
+def test_bridge_cached_passthrough(
+    invoke_bridge_stub: BridgeInvocationRecorder,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When the bridge short-circuits on cache hit, the hook re-emits
+    ``BRIDGE_CACHED=<path>`` from the subprocess stdout.
+
+    Discovered during v2.0.0 SMOKE-TEST-CHECKLIST section 5 on 2026-05-25.
+    """
+    invoke_bridge_stub.set_next(
+        returncode=0, stdout="BRIDGE_CACHED=.dlc/pr-42/hotfix-report.md\n"
+    )
+    rc = hotfix_revert.main(["--pr", "42"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "BRIDGE_CACHED=.dlc/pr-42/hotfix-report.md" in out
