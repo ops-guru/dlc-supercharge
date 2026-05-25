@@ -10,7 +10,10 @@ Phase 1 -> 2c chain. Three stages:
 
 Markers: ``STAGE``, ``TRIGGER``, ``SLUG``, ``STATE_INITIALIZED`` /
 ``STATE_EXISTS``, ``BRIDGE_STARTING=analyze-requirements``,
-``BRIDGE_EXIT``, ``PRD``, ``ID_PROPAGATED`` / ``ID_PROPAGATE_SKIPPED``,
+``BRIDGE_EXIT``, ``BRIDGE_CACHED`` (when the bridge short-circuits on a
+cached PRD; surfaced from the subprocess stdout via
+:func:`dlc_bridge.hooks._common.surface_bridge_cached`),
+``PRD``, ``ID_PROPAGATED`` / ``ID_PROPAGATE_SKIPPED``,
 ``DOMAINS``, ``REVIEW_STARTING``, ``REVIEW_OK``, ``REVIEW_FAILED``,
 ``REVIEWS_SKIPPED``, ``STATE_ADVANCED``, terminal ``PROBE_DEBOUNCED`` /
 ``HOOK_INIT_DONE`` / ``HOOK_REVIEWS_DONE`` / ``HOOK_REVIEWS_PARTIAL`` /
@@ -193,6 +196,10 @@ def _stage_init(args, slug_root) -> int:
     if result.returncode != 0:
         _common.emit_terminal("BRIDGE_FAILED")
         return result.returncode
+
+    cached = _common.surface_bridge_cached(result.stdout)
+    if cached:
+        emit.emit_marker("BRIDGE_CACHED", cached)
 
     prd = slug_path / "requirements.prd.md"
     emit.emit_marker("PRD", str(prd))

@@ -449,8 +449,13 @@ def _emit_cache_hit(slug: str, verb: str, source_hash: str, hit: cache_mod.Cache
     """
     # Generate a unique cache-hit job-ID: keep the timestamp + random
     # suffix from a fresh job-ID, but prefix with `-cache-hit-` so it's
-    # easily distinguishable.
-    cache_hit_job_id = f"{verb}-cache-hit-{status_mod.generate_job_id(verb).split('-', 1)[1]}"
+    # easily distinguishable. Strip the leading `<verb>-` prefix verbatim
+    # — multi-word verbs like `analyze-requirements` contain `-` themselves,
+    # so `.split('-', 1)` would only consume `analyze` and leak
+    # `requirements-` into the suffix (producing IDs like
+    # `analyze-requirements-cache-hit-requirements-<ts>-<hex>`).
+    fresh_id = status_mod.generate_job_id(verb)
+    cache_hit_job_id = f"{verb}-cache-hit-{fresh_id.removeprefix(f'{verb}-')}"
     try:
         from dlc_bridge.util.encoding import write_json_utf8_lf
         write_json_utf8_lf(

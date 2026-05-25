@@ -85,6 +85,56 @@ def test_init_happy_path(
     assert "HOOK_INIT_DONE" in out
 
 
+def test_init_surfaces_bridge_cached_marker(
+    tmp_path: Path,
+    invoke_bridge_stub: BridgeInvocationRecorder,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_state_funcs: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Regression: when the bridge short-circuits on a cache hit, the hook
+    must re-emit ``BRIDGE_CACHED=<path>`` on its own stdout so operators
+    can distinguish a cache hit from a real fire.
+
+    Pre-fix, ``on_requirements_saved._stage_init`` ignored ``result.stdout``
+    so the ``BRIDGE_CACHED`` marker (emitted by ``cli._emit_cache_hit``) was
+    invisible to the calling Kiro agent. The fix routes ``result.stdout``
+    through :func:`dlc_bridge.hooks._common.surface_bridge_cached` and
+    re-emits the marker.
+
+    Discovered during v2.0.0 smoke-test section 5 on 2026-05-25.
+    """
+    from dlc_bridge.util import debounce as debounce_mod, id_propagate
+    monkeypatch.setattr(debounce_mod, "check_debounce_keyed", lambda **kw: True)
+    monkeypatch.setattr(id_propagate, "propagate_ids", lambda **kw: {})
+
+    req = _spec(tmp_path)
+    dlc_root = tmp_path / ".dlc"
+    prd_dir = dlc_root / "myslug"
+    prd_dir.mkdir(parents=True)
+    (prd_dir / "requirements.prd.md").write_text("# PRD\n", encoding="utf-8")
+
+    # Simulate the bridge cache-hit path: subprocess emits BRIDGE_CACHED
+    # + BRIDGE_EXIT=0 on stdout and returns 0.
+    invoke_bridge_stub.set_next(
+        returncode=0,
+        stdout="BRIDGE_CACHED=.dlc/myslug/requirements.prd.md\nBRIDGE_EXIT=0\n",
+    )
+    rc = on_requirements_saved.main(
+        [
+            "--source", str(req),
+            "--dlc-root", str(dlc_root),
+            "--debounce-state-path", str(tmp_path / "_fires.json"),
+        ]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "BRIDGE_CACHED=.dlc/myslug/requirements.prd.md" in out, (
+        "hook did not passthrough BRIDGE_CACHED; smoke-test section 5 "
+        "regression has returned"
+    )
+
+
 def test_init_bridge_failure(
     tmp_path: Path,
     invoke_bridge_stub: BridgeInvocationRecorder,
