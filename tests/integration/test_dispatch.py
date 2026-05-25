@@ -420,6 +420,51 @@ def test_cache_hit_writes_cache_hit_status(
     assert raw["exitCode"] == 0
 
 
+def test_cache_hit_jobid_format_for_multi_word_verb(
+    plugin_cache_root_mock: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Regression: the cache-hit jobId must not duplicate verb word fragments.
+
+    Pre-fix, ``cli._emit_cache_hit`` constructed the jobId via
+    ``.split('-', 1)[1]`` which on ``analyze-requirements`` would produce
+    ``analyze-requirements-cache-hit-requirements-<ts>-<hex>``. The fix
+    uses ``removeprefix('<verb>-')`` so the suffix is just ``<ts>-<hex>``.
+
+    Discovered during v2.0.0 smoke-test section 5 on 2026-05-25.
+    """
+    monkeypatch.chdir(tmp_path)
+    src = _seed_source_file(tmp_path)
+    _seed_artifact(tmp_path)
+    _mock_claude_success(monkeypatch)
+
+    # Seed cache.
+    main(["analyze-requirements", "--source", str(src)])
+    capsys.readouterr()
+
+    # Trigger cache hit on second call.
+    main(["analyze-requirements", "--source", str(src)])
+
+    jobs_dir = tmp_path / ".dlc" / "_bridge-jobs"
+    cache_hit_statuses = list(jobs_dir.glob("analyze-requirements-cache-hit-*.status.json"))
+    assert cache_hit_statuses, "no cache-hit status file written"
+    name = cache_hit_statuses[-1].name
+    # Must NOT contain the doubled word fragment.
+    assert "cache-hit-requirements-" not in name, (
+        f"cache-hit jobId leaked 'requirements-' fragment: {name}. "
+        f"This indicates the .split('-', 1) regression has returned."
+    )
+    # Positive shape check: <verb>-cache-hit-<ts>-<hex>.status.json
+    # where <ts> matches YYYYMMDDTHHMMSSZ (15 chars) and <hex> is 6 chars.
+    import re
+    expected = re.compile(
+        r"^analyze-requirements-cache-hit-\d{8}T\d{6}Z-[0-9a-f]{6}\.status\.json$"
+    )
+    assert expected.match(name), f"cache-hit jobId shape unexpected: {name}"
+
+
 # ----- unknown verb ---------------------------------------------------------
 
 
