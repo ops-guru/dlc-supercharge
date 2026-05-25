@@ -11,6 +11,7 @@ Phase 2c -> 3 chain. Three stages:
 Markers: ``STAGE``, ``TRIGGER``, ``SLUG``, ``STATE_INITIALIZED`` /
 ``STATE_EXISTS``, ``DESIGN_SKELETON``, ``BRIDGE_STARTING``,
 ``BRIDGE_EXIT``, ``TECH_DESIGN``, ``ID_PROPAGATED`` /
+``ID_PROPAGATE_ZERO_MATCHES`` / ``ID_PROPAGATE_NO_ENTRIES`` /
 ``ID_PROPAGATE_SKIPPED``, ``REVIEW_AVAILABLE``, ``DOMAINS``,
 ``REVIEW_STARTING``, ``REVIEW_OK``, ``REVIEW_FAILED``,
 ``REVIEWS_SKIPPED``, ``STATE_ADVANCED``, terminal ``PROBE_DEBOUNCED`` /
@@ -243,13 +244,13 @@ def _stage_init(args, slug_root) -> int:
     emit.emit_marker("TECH_DESIGN", str(tech_design))
     if tech_design.exists():
         try:
-            id_propagate.propagate_ids(
+            result = id_propagate.propagate_ids(
                 dlc_prd=tech_design,
                 kiro_req=Path(args.source),
                 id_types=["WI", "D", "R"],
             )
-            emit.emit_marker(
-                "ID_PROPAGATED", f"{tech_design} -> {args.source}"
+            _common.emit_propagate_outcome(
+                result, prd=tech_design, source=args.source
             )
         except Exception as e:
             emit.emit_marker("ID_PROPAGATE_SKIPPED", f"propagate failed: {e}")

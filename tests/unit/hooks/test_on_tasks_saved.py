@@ -63,7 +63,15 @@ def test_init_happy_path(
 ) -> None:
     from dlc_bridge.util import debounce as debounce_mod, id_propagate, epic_inject
     monkeypatch.setattr(debounce_mod, "check_debounce_keyed", lambda **kw: True)
-    monkeypatch.setattr(id_propagate, "propagate_ids", lambda **kw: {"propagated": []})
+    monkeypatch.setattr(
+        id_propagate,
+        "propagate_ids",
+        lambda **kw: {
+            "propagated": [{"id": "TC-1", "line": 0}],
+            "unmapped": [],
+            "threshold": 0.3,
+        },
+    )
     monkeypatch.setattr(
         epic_inject, "inject_epic_dir",
         lambda *a, **kw: {"injected": 0, "skipped": 0, "failed": 0},
@@ -93,6 +101,7 @@ def test_init_happy_path(
     assert "BRIDGE_STARTING=plan-implementation" in out
     assert "PLAN=" in out
     assert "ID_PROPAGATED=" in out
+    assert "1 injected" in out
     assert "ITERATION_STATE_INITIALIZED=" in out
     assert "HOOK_INIT_DONE" in out
 

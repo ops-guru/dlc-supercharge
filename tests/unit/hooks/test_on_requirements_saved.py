@@ -58,7 +58,15 @@ def test_init_happy_path(
 ) -> None:
     from dlc_bridge.util import debounce as debounce_mod, id_propagate
     monkeypatch.setattr(debounce_mod, "check_debounce_keyed", lambda **kw: True)
-    monkeypatch.setattr(id_propagate, "propagate_ids", lambda **kw: {})
+    monkeypatch.setattr(
+        id_propagate,
+        "propagate_ids",
+        lambda **kw: {
+            "propagated": [{"id": "FR-1", "line": 0}],
+            "unmapped": [],
+            "threshold": 0.3,
+        },
+    )
 
     req = _spec(tmp_path)
     dlc_root = tmp_path / ".dlc"
@@ -82,6 +90,7 @@ def test_init_happy_path(
     assert "BRIDGE_STARTING=analyze-requirements" in out
     assert "PRD=" in out
     assert "ID_PROPAGATED=" in out
+    assert "1 injected" in out
     assert "HOOK_INIT_DONE" in out
 
 

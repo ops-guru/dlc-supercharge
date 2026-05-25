@@ -225,6 +225,88 @@ class TestPropagation:
         assert content.count("<!-- FR-1 -->") == 1
 
 
+class TestRealPluginHeadingFormat:
+    """Heading-format tolerance — the live ``/dlc:analyze-requirements`` skill
+    emits ``### FR-N — Title`` (h3 + em-dash) while the v1.1 PowerShell port
+    emitted ``#### FR-N - Title`` (h4 + ASCII hyphen). Parser must accept both.
+    """
+
+    def test_h3_em_dash_inline(self, prd_and_spec) -> None:
+        """``### FR-1 — Title`` (h3 + em-dash) — the actual live plugin output."""
+        prd, spec = prd_and_spec(
+            "### FR-1 — User authentication via OAuth\n",
+            "WHEN a user signs in THE system SHALL authenticate via OAuth.\n",
+        )
+        result = propagate_ids(dlc_prd=prd, kiro_req=spec, threshold=0.10)
+        assert "FR-1" in [p["id"] for p in result["propagated"]]
+
+    def test_h3_en_dash_inline(self, prd_and_spec) -> None:
+        """``### FR-1 – Title`` (h3 + en-dash) — defensive."""
+        prd, spec = prd_and_spec(
+            "### FR-1 – User authentication via OAuth\n",
+            "WHEN a user signs in THE system SHALL authenticate via OAuth.\n",
+        )
+        result = propagate_ids(dlc_prd=prd, kiro_req=spec, threshold=0.10)
+        assert "FR-1" in [p["id"] for p in result["propagated"]]
+
+    def test_h4_em_dash_inline(self, prd_and_spec) -> None:
+        """``#### FR-1 — Title`` (h4 + em-dash) — mixed-style tolerance."""
+        prd, spec = prd_and_spec(
+            "#### FR-1 — User authentication via OAuth\n",
+            "WHEN a user signs in THE system SHALL authenticate via OAuth.\n",
+        )
+        result = propagate_ids(dlc_prd=prd, kiro_req=spec, threshold=0.10)
+        assert "FR-1" in [p["id"] for p in result["propagated"]]
+
+    def test_h2_rejected(self, prd_and_spec) -> None:
+        """``## FR-1 - Title`` (h2) must NOT match — keeps regex bounded."""
+        prd, spec = prd_and_spec(
+            "## FR-1 - User authentication via OAuth\n",
+            "WHEN a user signs in THE system SHALL authenticate via OAuth.\n",
+        )
+        result = propagate_ids(dlc_prd=prd, kiro_req=spec, threshold=0.10)
+        assert result["propagated"] == []
+        assert result["unmapped"] == []
+
+    def test_h5_rejected(self, prd_and_spec) -> None:
+        """``##### FR-1 - Title`` (h5) must NOT match."""
+        prd, spec = prd_and_spec(
+            "##### FR-1 - User authentication via OAuth\n",
+            "WHEN a user signs in THE system SHALL authenticate via OAuth.\n",
+        )
+        result = propagate_ids(dlc_prd=prd, kiro_req=spec, threshold=0.10)
+        assert result["propagated"] == []
+        assert result["unmapped"] == []
+
+    def test_real_plugin_fixture(self, tmp_path: Path) -> None:
+        """End-to-end: parse the captured real-plugin PRD + matching Kiro req.
+
+        Fixture under ``tests/fixtures/id-prop/real-plugin-output/`` mirrors
+        the actual ``/dlc:analyze-requirements`` output captured during the
+        feedback-collector e2e on 2026-05-25.
+        """
+        fixture_root = Path(__file__).parent.parent / "fixtures" / "id-prop" / "real-plugin-output"
+        prd_src = (fixture_root / "dlc.prd.md").read_text(encoding="utf-8")
+        spec_src = (fixture_root / "kiro.req.md").read_text(encoding="utf-8")
+        prd = tmp_path / "requirements.prd.md"
+        spec = tmp_path / "requirements.md"
+        prd.write_text(prd_src, encoding="utf-8")
+        spec.write_text(spec_src, encoding="utf-8")
+
+        result = propagate_ids(dlc_prd=prd, kiro_req=spec, threshold=0.10)
+        ids = [p["id"] for p in result["propagated"]]
+        # FR-1 (serve form) and FR-2 (email validation) should propagate.
+        assert "FR-1" in ids, f"FR-1 missing from propagated; got {result}"
+        assert "FR-2" in ids, f"FR-2 missing from propagated; got {result}"
+        # NFR-1 (accessibility) should also propagate to the Requirement 3 EARS line.
+        assert "NFR-1" in ids
+        # Verify comments landed in the spec file.
+        spec_after = spec.read_text(encoding="utf-8")
+        assert "<!-- FR-1 -->" in spec_after
+        assert "<!-- FR-2 -->" in spec_after
+        assert "<!-- NFR-1 -->" in spec_after
+
+
 def test_full_propagation_json_serializable(prd_and_spec) -> None:
     prd, spec = prd_and_spec(
         "#### FR-1 - User authentication via OAuth\n",

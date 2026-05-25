@@ -13,7 +13,8 @@ Markers: ``STAGE``, ``TRIGGER``, ``SLUG``, ``STATE_INITIALIZED`` /
 ``BRIDGE_EXIT``, ``BRIDGE_CACHED`` (when the bridge short-circuits on a
 cached PRD; surfaced from the subprocess stdout via
 :func:`dlc_bridge.hooks._common.surface_bridge_cached`),
-``PRD``, ``ID_PROPAGATED`` / ``ID_PROPAGATE_SKIPPED``,
+``PRD``, ``ID_PROPAGATED`` / ``ID_PROPAGATE_ZERO_MATCHES`` /
+``ID_PROPAGATE_NO_ENTRIES`` / ``ID_PROPAGATE_SKIPPED``,
 ``DOMAINS``, ``REVIEW_STARTING``, ``REVIEW_OK``, ``REVIEW_FAILED``,
 ``REVIEWS_SKIPPED``, ``STATE_ADVANCED``, terminal ``PROBE_DEBOUNCED`` /
 ``HOOK_INIT_DONE`` / ``HOOK_REVIEWS_DONE`` / ``HOOK_REVIEWS_PARTIAL`` /
@@ -205,11 +206,11 @@ def _stage_init(args, slug_root) -> int:
     emit.emit_marker("PRD", str(prd))
     if prd.exists():
         try:
-            id_propagate.propagate_ids(
+            result = id_propagate.propagate_ids(
                 dlc_prd=prd,
                 kiro_req=Path(args.source),
             )
-            emit.emit_marker("ID_PROPAGATED", f"{prd} -> {args.source}")
+            _common.emit_propagate_outcome(result, prd=prd, source=args.source)
         except Exception as e:
             emit.emit_marker("ID_PROPAGATE_SKIPPED", f"propagate failed: {e}")
     else:
