@@ -38,6 +38,7 @@ __all__ = [
     "find_python_executable",
     "invoke_bridge",
     "emit_terminal",
+    "emit_propagate_outcome",
     "read_state_text",
     "read_current_phase",
     "read_pr_number",
@@ -154,6 +155,50 @@ def emit_terminal(token: str) -> None:
     """
     sys.stdout.write(f"{token}\n")
     sys.stdout.flush()
+
+
+def emit_propagate_outcome(
+    result: dict, *, prd: Path | str, source: Path | str
+) -> None:
+    """Emit a granular ``ID_PROPAGATE*`` marker based on parser yield.
+
+    Distinguishes three outcomes that all looked identical under the
+    pre-v1.2 ``emit_marker("ID_PROPAGATED", ...)`` happy-path:
+
+    * ``ID_PROPAGATE_NO_ENTRIES`` — PRD parsed but yielded zero ``FR-N``/``NFR-N``
+      headings. Almost always a producer/consumer format drift between the
+      ``/dlc:analyze-requirements`` skill output and ``id_propagate``'s
+      heading regex. Surface loudly so the user can re-tune the parser.
+    * ``ID_PROPAGATE_ZERO_MATCHES`` — entries parsed, but none cleared the
+      Jaccard threshold. Tunable via ``--threshold``.
+    * ``ID_PROPAGATED`` — at least one ID injected.
+    """
+    propagated = result.get("propagated") or []
+    unmapped = result.get("unmapped") or []
+    threshold = result.get("threshold")
+    arrow = f"{prd} -> {source}"
+    if not propagated and not unmapped:
+        emit.emit_marker(
+            "ID_PROPAGATE_NO_ENTRIES",
+            (
+                f"{arrow}; 0 FR/NFR headings parsed from PRD "
+                f"(check ### vs #### / dash style)"
+            ),
+        )
+        return
+    if not propagated:
+        emit.emit_marker(
+            "ID_PROPAGATE_ZERO_MATCHES",
+            (
+                f"{arrow}; {len(unmapped)} entries parsed but all below "
+                f"threshold={threshold}"
+            ),
+        )
+        return
+    emit.emit_marker(
+        "ID_PROPAGATED",
+        f"{arrow}; {len(propagated)} injected, {len(unmapped)} unmapped",
+    )
 
 
 def dlc_root_for(dlc_root: Path | str | None = None) -> Path:

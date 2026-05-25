@@ -1,9 +1,10 @@
 """FR-11 DLC ID propagation via Jaccard similarity.
 
 Port of v1.1 ``id-propagate.ps1``. Walks a DLC-style PRD for
-``#### <ID> - <Title>`` headings, then for each ID computes the best Jaccard
-match against EARS-detected lines in the Kiro spec, and injects an inline
-``<!-- FR-N -->`` (or ``<!-- NFR-N -->`` etc.) HTML comment on the matched line.
+``### <ID> <dash> <Title>`` headings (h3 or h4; ASCII / en / em dash),
+then for each ID computes the best Jaccard match against EARS-detected
+lines in the Kiro spec, and injects an inline ``<!-- FR-N -->``
+(or ``<!-- NFR-N -->`` etc.) HTML comment on the matched line.
 
 Idempotent at the byte level — re-running with no new matches will not rewrite
 the spec file (avoids retriggering the on-saved hook in a self-fire loop).
@@ -72,9 +73,16 @@ def _jaccard(a: set[str], b: set[str]) -> float:
 
 
 def _parse_prd_entries(text: str, id_type_pattern: str) -> list[dict[str, str]]:
-    """Parse ``#### <ID> - <Title>`` headings + their description blocks."""
+    """Parse ``### <ID> <dash> <Title>`` headings + their description blocks.
+
+    Tolerant of both heading levels (h3 ``###`` and h4 ``####``) and three
+    dash characters (ASCII ``-``, en-dash ``–``, em-dash ``—``).
+    The live ``/dlc:analyze-requirements`` plugin emits ``### FR-1 — Title``
+    (h3 + em-dash); the v1.1 PowerShell script emitted ``#### FR-1 - Title``
+    (h4 + ASCII). The relaxed grammar accepts either.
+    """
     heading_re = re.compile(
-        rf"^####\s+({id_type_pattern})-(\d+)\s+[-]\s+(.+?)\s*$",
+        rf"^#{{3,4}}\s+({id_type_pattern})-(\d+)\s+[-–—]\s+(.+?)\s*$",
         re.MULTILINE,
     )
     # Iterate line by line so we can collect description blocks until the next

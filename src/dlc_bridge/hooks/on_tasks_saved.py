@@ -10,7 +10,9 @@ Phase 3 (planning) chain. Two stages:
 
 Markers: ``STAGE``, ``TRIGGER``, ``SLUG``, ``STATE_INITIALIZED``,
 ``STATE_EXISTS``, ``BRIDGE_STARTING=plan-implementation``,
-``BRIDGE_EXIT``, ``PLAN``, ``ID_PROPAGATED``, ``ID_PROPAGATE_SKIPPED``,
+``BRIDGE_EXIT``, ``PLAN``, ``ID_PROPAGATED`` /
+``ID_PROPAGATE_ZERO_MATCHES`` / ``ID_PROPAGATE_NO_ENTRIES`` /
+``ID_PROPAGATE_SKIPPED``,
 ``EPIC_INJECTED``, ``EPIC_SKIPPED``, ``INJECT_SUMMARY``,
 ``ITERATION_STATE_INITIALIZED``, ``ITERATION_STATE_PRESERVED``,
 ``DECISION_LOG_APPENDED``, terminal ``PROBE_DEBOUNCED`` /
@@ -204,13 +206,13 @@ def main(argv: list[str] | None = None) -> int:
     if plan_path is not None:
         emit.emit_marker("PLAN", str(plan_path))
         try:
-            id_propagate.propagate_ids(
+            result = id_propagate.propagate_ids(
                 dlc_prd=plan_path,
                 kiro_req=Path(trigger_path),
                 id_types=["TC", "T"],
             )
-            emit.emit_marker(
-                "ID_PROPAGATED", f"{plan_path} -> {trigger_path}"
+            _common.emit_propagate_outcome(
+                result, prd=plan_path, source=trigger_path
             )
         except Exception as e:
             emit.emit_marker("ID_PROPAGATE_SKIPPED", f"propagate failed: {e}")

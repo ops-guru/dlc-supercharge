@@ -132,6 +132,48 @@ class TestEmitTerminal:
         assert "=" not in out
 
 
+class TestEmitPropagateOutcome:
+    """Granular ID_PROPAGATE marker per propagate_ids() yield."""
+
+    def test_no_entries_emits_no_entries_marker(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        result = {"propagated": [], "unmapped": [], "threshold": 0.3}
+        _common.emit_propagate_outcome(result, prd="prd.md", source="src.md")
+        out = capsys.readouterr().out
+        assert "ID_PROPAGATE_NO_ENTRIES=" in out
+        assert "ID_PROPAGATED=" not in out
+        assert "ID_PROPAGATE_ZERO_MATCHES=" not in out
+
+    def test_zero_matches_emits_zero_matches_marker(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        result = {
+            "propagated": [],
+            "unmapped": ["FR-1", "FR-2"],
+            "threshold": 0.3,
+        }
+        _common.emit_propagate_outcome(result, prd="prd.md", source="src.md")
+        out = capsys.readouterr().out
+        assert "ID_PROPAGATE_ZERO_MATCHES=" in out
+        assert "2 entries parsed" in out
+        assert "threshold=0.3" in out
+
+    def test_propagated_emits_propagated_marker(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        result = {
+            "propagated": [{"id": "FR-1", "line": 5}],
+            "unmapped": ["FR-2"],
+            "threshold": 0.3,
+        }
+        _common.emit_propagate_outcome(result, prd="prd.md", source="src.md")
+        out = capsys.readouterr().out
+        assert "ID_PROPAGATED=" in out
+        assert "1 injected" in out
+        assert "1 unmapped" in out
+
+
 # ---------------------------------------------------------------------------
 # State-md readers
 # ---------------------------------------------------------------------------
