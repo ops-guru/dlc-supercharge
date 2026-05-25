@@ -29,6 +29,8 @@ import json
 import re
 import subprocess
 import sys
+import threading
+import time as _time
 from pathlib import Path
 
 from dlc_bridge.util import emit
@@ -103,6 +105,7 @@ def invoke_bridge(
     cwd: Path | str | None = None,
     capture_output: bool = True,
     timeout: float | None = None,
+    heartbeat_interval: float | None = 30.0,
 ) -> subprocess.CompletedProcess[str]:
     """Spawn ``python -m dlc_bridge <verb> [args]`` as a subprocess.
 
@@ -111,13 +114,22 @@ def invoke_bridge(
     :param args: optional list of additional CLI args (e.g. ``['--source',
         path, '--slug', slug]``). NEVER pass a single string — must be a
         list to preserve the argv-list contract (no shell expansion).
-    :param background: if ``True``, append ``--background``.
+    :param background: if ``True``, append ``--background``. Heartbeats are
+        suppressed in this path since the bridge returns immediately.
     :param dry_run: if ``True``, returns a stubbed ``CompletedProcess`` with
         ``returncode=0`` and a ``DRY_RUN=<argv>`` line on stdout. No
         subprocess is spawned.
     :param cwd: optional working directory.
     :param capture_output: capture stdout/stderr (default True).
     :param timeout: subprocess timeout in seconds.
+    :param heartbeat_interval: seconds between ``BRIDGE_PROGRESS`` markers
+        emitted to **this wrapper's stdout** while the bridge subprocess
+        runs. Defends against Kiro-side bash tools that interpret a long
+        silent subprocess as hung and abandon it before completion
+        (observed at ~3-4 min during the feedback-collector e2e on
+        2026-05-25, where produce-tech-design took 7m38s and the hook
+        bash was abandoned at ~3m37s, causing premature state advance).
+        Pass ``None`` to disable. Default ``30.0``.
     :returns: :class:`subprocess.CompletedProcess` with text-mode stdout/err.
     """
     argv: list[str] = [find_python_executable(), "-m", "dlc_bridge", verb]
@@ -134,16 +146,67 @@ def invoke_bridge(
             stderr="",
         )
 
-    return subprocess.run(
-        argv,
-        cwd=str(cwd) if cwd is not None else None,
-        capture_output=capture_output,
-        text=True,
-        timeout=timeout,
-        check=False,
+    run_kwargs: dict = {
+        "cwd": str(cwd) if cwd is not None else None,
+        "capture_output": capture_output,
+        "text": True,
+        "timeout": timeout,
+        "check": False,
         # Explicit: no shell expansion. Argv-list only.
-        shell=False,
+        "shell": False,
+    }
+
+    if background or heartbeat_interval is None or heartbeat_interval <= 0:
+        return subprocess.run(argv, **run_kwargs)
+
+    return _run_with_heartbeat(
+        argv,
+        verb=verb,
+        interval=heartbeat_interval,
+        run_kwargs=run_kwargs,
     )
+
+
+def _run_with_heartbeat(
+    argv: list[str],
+    *,
+    verb: str,
+    interval: float,
+    run_kwargs: dict,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``subprocess.run(argv, **run_kwargs)`` while a daemon thread
+    emits ``BRIDGE_PROGRESS=verb=<verb> elapsed=<N>s`` to this process's
+    stdout every ``interval`` seconds. Stops emitting as soon as the
+    subprocess returns.
+
+    Why this lives in the hook wrapper and not the bridge CLI: the bridge's
+    own stdout is captured by ``subprocess.run(capture_output=True)`` in
+    this wrapper, so anything the bridge prints never reaches Kiro's bash.
+    The heartbeat must come from **us** (the wrapper) to keep Kiro's
+    long-bash tracker seeing live activity.
+    """
+    start = _time.monotonic()
+    stop_event = threading.Event()
+
+    def _heartbeat() -> None:
+        # First marker fires after one full interval; do not spam at t=0.
+        while not stop_event.wait(interval):
+            elapsed = int(_time.monotonic() - start)
+            try:
+                emit.emit_marker(
+                    "BRIDGE_PROGRESS", f"verb={verb} elapsed={elapsed}s"
+                )
+            except Exception:
+                # Never let a stdout error take down the wrapper.
+                break
+
+    hb = threading.Thread(target=_heartbeat, name="bridge-heartbeat", daemon=True)
+    hb.start()
+    try:
+        return subprocess.run(argv, **run_kwargs)
+    finally:
+        stop_event.set()
+        hb.join(timeout=2.0)
 
 
 def emit_terminal(token: str) -> None:

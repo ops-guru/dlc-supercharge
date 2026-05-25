@@ -110,9 +110,129 @@ def test_invoke_bridge_real_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
         return subprocess.CompletedProcess(args=argv, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    _common.invoke_bridge("review-pr", args=["--pr", "1"])
+    # Disable heartbeat for this test — we're verifying the argv path only.
+    _common.invoke_bridge(
+        "review-pr", args=["--pr", "1"], heartbeat_interval=None
+    )
     assert captured["kwargs"]["shell"] is False
     assert "review-pr" in captured["argv"]
+
+
+class TestInvokeBridgeHeartbeat:
+    """Heartbeat emission during long-running bridge subprocesses.
+
+    Defends against Kiro bash tools that abandon a long-silent subprocess
+    before it completes. Discovered during the feedback-collector e2e on
+    2026-05-25 when produce-tech-design took 7m38s and the hook bash was
+    killed at ~3m37s, causing premature state advance.
+    """
+
+    @staticmethod
+    def _make_sleep_run(sleep_sec: float):
+        """A fake subprocess.run that sleeps before returning."""
+        import time as _time
+
+        def fake_run(argv, **kwargs):
+            _time.sleep(sleep_sec)
+            return subprocess.CompletedProcess(
+                args=argv, returncode=0, stdout="", stderr=""
+            )
+
+        return fake_run
+
+    def test_heartbeat_emits_progress_during_long_subprocess(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A subprocess that runs ≥ 2 heartbeat intervals must produce ≥ 1
+        ``BRIDGE_PROGRESS=`` marker on the wrapper's stdout."""
+        monkeypatch.setattr(subprocess, "run", self._make_sleep_run(0.35))
+        _common.invoke_bridge(
+            "produce-tech-design",
+            args=["--target", "x.md"],
+            heartbeat_interval=0.1,
+        )
+        out = capsys.readouterr().out
+        progress_lines = [
+            line for line in out.splitlines() if line.startswith("BRIDGE_PROGRESS=")
+        ]
+        assert progress_lines, (
+            f"expected BRIDGE_PROGRESS markers in wrapper stdout; got: {out!r}"
+        )
+
+    def test_heartbeat_marker_shape(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Marker format: ``BRIDGE_PROGRESS=verb=<v> elapsed=<N>s``."""
+        monkeypatch.setattr(subprocess, "run", self._make_sleep_run(0.25))
+        _common.invoke_bridge(
+            "produce-tech-design",
+            args=["--target", "x.md"],
+            heartbeat_interval=0.1,
+        )
+        out = capsys.readouterr().out
+        assert "BRIDGE_PROGRESS=verb=produce-tech-design" in out
+        assert "elapsed=" in out
+        assert "s" in out
+
+    def test_heartbeat_disabled_when_interval_none(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """``heartbeat_interval=None`` suppresses all progress markers."""
+        monkeypatch.setattr(subprocess, "run", self._make_sleep_run(0.3))
+        _common.invoke_bridge(
+            "produce-tech-design",
+            args=["--target", "x.md"],
+            heartbeat_interval=None,
+        )
+        out = capsys.readouterr().out
+        assert "BRIDGE_PROGRESS=" not in out
+
+    def test_heartbeat_disabled_for_zero_interval(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """``heartbeat_interval=0`` (or negative) also suppresses markers
+        — defensive against accidental zero-division-like configs."""
+        monkeypatch.setattr(subprocess, "run", self._make_sleep_run(0.2))
+        _common.invoke_bridge(
+            "produce-tech-design",
+            args=["--target", "x.md"],
+            heartbeat_interval=0.0,
+        )
+        out = capsys.readouterr().out
+        assert "BRIDGE_PROGRESS=" not in out
+
+    def test_heartbeat_skipped_for_background(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Background mode returns immediately — no heartbeats needed."""
+        monkeypatch.setattr(subprocess, "run", self._make_sleep_run(0.25))
+        _common.invoke_bridge(
+            "reverse-engineer-kb",
+            args=["--target", "x"],
+            background=True,
+            heartbeat_interval=0.1,
+        )
+        out = capsys.readouterr().out
+        assert "BRIDGE_PROGRESS=" not in out
+
+    def test_heartbeat_stops_after_subprocess_returns(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """After invoke_bridge returns, the heartbeat thread must stop
+        — verified by waiting longer than the interval and checking no
+        further markers appear."""
+        import time as _time
+
+        monkeypatch.setattr(subprocess, "run", self._make_sleep_run(0.2))
+        _common.invoke_bridge(
+            "produce-tech-design",
+            args=["--target", "x.md"],
+            heartbeat_interval=0.1,
+        )
+        capsys.readouterr()  # drain
+        _time.sleep(0.25)  # would emit 2+ more if thread still alive
+        out = capsys.readouterr().out
+        assert "BRIDGE_PROGRESS=" not in out
 
 
 # ---------------------------------------------------------------------------
