@@ -78,7 +78,7 @@ uv run python -m dlc_bridge.hooks.check_dlc_job --slug test --dry-run
 
 - [ ] Exit code: 0
 - [ ] Stdout contains the `HOOK_DONE` terminal marker
-- [ ] Stdout contains a JSON object with at least `{ status, slug }`
+- [ ] Stdout contains structured `KEY=value` markers: `NO_JOBS=<reason>` when the bridge has never been invoked on this workspace, OR `JOB=id=...|verb=...|status=...|started=...|ended=...|exit=...|pid=...|log=...` rows followed by `COUNT_RUNNING=N`, `COUNT_COMPLETE=N`, `COUNT_CACHE_HIT=N`, `COUNT_ERROR=N`, `COUNT_CANCELLED=N`, `TOTAL_REPORTED=N` when jobs exist. (The hook does NOT emit JSON; it emits a `KEY=value` stream the calling Kiro agent renders into a markdown table — see [`check_dlc_job.py`](../src/dlc_bridge/hooks/check_dlc_job.py) module docstring.)
 - [ ] Stderr is either empty or contains only structured KEY=value log lines (no Python traceback)
 
 ---
