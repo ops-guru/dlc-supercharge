@@ -2,6 +2,36 @@
 
 All notable changes to DLC SuperCharge are documented in this file. Format: [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/). Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-05-25 — feedback-collector e2e fixes
+
+Four patches discovered empirically by running a real Kiro Spec end-to-end (a tiny FastAPI feedback-collector app) through the full DLC SuperCharge flow. Each fix addresses a distinct class of bug that synthetic-fixture unit tests cannot surface. Full retrospective: [E2E-RETRO-2026-05-25.md](E2E-RETRO-2026-05-25.md).
+
+### Fixed
+
+- **`id_propagate` heading-format drift** ([#5](https://github.com/ops-guru/kiro-bridge-poc/pull/5)). The live `/dlc:analyze-requirements` skill emits `### FR-1 — Title` (h3 + em-dash U+2014); the parser regex literally required `#### FR-1 - Title` (h4 + ASCII hyphen). Zero FR/NFR markers had ever been injected into any Kiro spec. Regex relaxed to `#{3,4}` + `[-–—]`; bounded so h2 and h5 remain rejected. New `tests/fixtures/id-prop/real-plugin-output/` captures actual plugin output for regression coverage. New `_common.emit_propagate_outcome()` helper distinguishes `ID_PROPAGATED` / `ID_PROPAGATE_ZERO_MATCHES` / `ID_PROPAGATE_NO_ENTRIES` — the prior happy-path marker silently conflated all three.
+
+- **Premature state finalize on long bridge verbs** ([#6](https://github.com/ops-guru/kiro-bridge-poc/pull/6)). `produce-tech-design` (7m38s wall clock) was being killed by Kiro's host bash inactivity-timeout at ~3-4 minutes — the bridge's `subprocess.run(claude.exe, capture_output=True)` is silent for the whole duration, looks hung. Agent then ran `finalize`, advancing state to Phase 3 before the artifact existed. `_common.invoke_bridge()` now spawns a daemon thread emitting `BRIDGE_PROGRESS=verb=<v> elapsed=<N>s` to the wrapper's *own* stdout every 30s (configurable via `heartbeat_interval`, opt out with `None`). Stops cleanly when the subprocess returns. Validated empirically: a 27-min `plan-implementation` survived the bash intact.
+
+- **Visibility gap during long hook runs** ([#7](https://github.com/ops-guru/kiro-bridge-poc/pull/7)). Heartbeats from #6 defeat the timeout but stay invisible to the user — Kiro chat does not stream a running bash's stdout. Users see an idle chat and assume the task is done, then re-prompt. Each long-running hook prompt (`on-requirements-saved`, `on-design-saved`, `on-tasks-saved`) now starts with an explicit **Step 0** instructing the agent to surface `⏳ DLC: starting <verb> in the background — typically 5–10 minutes. Don't re-prompt; I will surface results when the bridge completes.` as plain chat text BEFORE running any Bash. `on-requirements-saved` gets a second mid-flight notice before Step 3 (review dispatch).
+
+- **Self-fire loops from DLC's own writes** ([#9](https://github.com/ops-guru/kiro-bridge-poc/pull/9), closes [#8](https://github.com/ops-guru/kiro-bridge-poc/issues/8)). When `id_propagate` injects `<!-- FR-1 -->` / `<!-- WI-1 -->` / `<!-- TC-1 -->` comments — or `epic_inject` appends Epic markers — Kiro detects the mtime change as a `fileEdited` event and re-fires the same hook. The 30s debounce expires; the bridge cache misses (different source-content hash). Three self-fire loops observed in the e2e, ~\$2-3 wasted API spend per fire. New `dlc_bridge.util.self_writes` module: per-slug SHA-256 registry at `.dlc/<slug>/_self-writes.json`, last-10-entries-with-TTL, `filelock`-protected, fail-open. After successful init pipeline, wrapper records `sha256(trigger_file)`. At init entry (after debounce, before `invoke_bridge`), wrapper compares current hash against registry; on match within 10-min TTL → emit `PROBE_SELF_FIRE` + `HOOK_INIT_SKIPPED`, return 0 without touching the bridge. Applied uniformly to all three save-hooks. Bonus cleanup: removed redundant "Step 2 Epic markers" from `.kiro/hooks/on-tasks-saved.kiro.hook` prompt — the Python wrapper's `epic_inject` already handles this idempotently and the agent's manual edit was duplicating work AND was a primary self-fire trigger.
+
+### Added
+
+- `dlc-supercharge/E2E-RETRO-2026-05-25.md` — complete retrospective of the feedback-collector e2e session: timeline, four bug classes with root cause and fix details, things that worked, things to add next, and a reproducer.
+- `src/dlc_bridge/util/self_writes.py` — content-hash registry module with `record()`, `is_self_fire()`, `sha256_of_file()` API. `filelock`-protected, TTL-evicted, capped at 10 entries per file.
+- New markers: `BRIDGE_PROGRESS=verb=<v> elapsed=<N>s`, `PROBE_SELF_FIRE=<path>`, `SELF_WRITE_RECORDED=<file> sha256=<16-hex-prefix>`, `ID_PROPAGATE_ZERO_MATCHES=…`, `ID_PROPAGATE_NO_ENTRIES=…`. New terminal: `HOOK_INIT_SKIPPED` (also emitted by self-fire path, in addition to the existing design-skeleton path).
+
+### Tests
+
+- 353 passing (was 334 → +19): 17 new `tests/unit/test_self_writes.py`, 6 new `tests/unit/test_id_propagate.py::TestRealPluginHeadingFormat`, 6 new `tests/unit/hooks/test_common.py::TestInvokeBridgeHeartbeat` + 3 `TestEmitPropagateOutcome`, 2 new `tests/unit/hooks/test_on_tasks_saved.py` self-fire integration. Zero regressions in existing hook tests despite the new code path — `is_self_fire()` fail-opens when registry absent (every test uses fresh `tmp_path`).
+
+### Known follow-ups (not in scope)
+
+- Switch `produce-tech-design` + `plan-implementation` to default `--background` mode + `check-dlc-job` polling for id-propagate. Architectural fix; defeats both inactivity AND wall-clock timeouts. ~6-7 files. See E2E-RETRO § "Things to add next".
+- Captured-real-plugin-output fixtures for `produce-tech-design` and `plan-implementation` (analogous to the `analyze-requirements` fixture added in #5).
+- State-aware suppression ("phase 3 with plan exists AND no `--force` ⇒ skip") to catch the broader pattern of Kiro itself fire-triggering on `tasks.md` checkboxes during impl phase, beyond the DLC-self-write loop #9 already addresses.
+
 ## [2.0.0] - 2026-05-22 — Python runtime migration (BREAKING)
 
 Big-bang cutover from the v1.1 PowerShell + POSIX bash dual-stack to a single Python 3.11+ codebase. Gated by a 74-test golden-artifact parity suite (FR-19) cross-validated against v1.1 PS 5.1.
