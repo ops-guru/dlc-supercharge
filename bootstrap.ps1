@@ -178,11 +178,16 @@ function Test-Prereqs {
         Test-Prereq -Name 'Anthropic auth configured' -Severity 'warn' `
             -Check {
                 if ($env:ANTHROPIC_API_KEY) { return 'ANTHROPIC_API_KEY set' }
-                $credPath = Join-Path $env:USERPROFILE '.claude\credentials'
-                if (Test-Path $credPath) { return '~/.claude/credentials present' }
+                # `claude login` stores OAuth creds in ~/.claude/.credentials.json
+                # (leading dot + .json), NOT ~/.claude/credentials. No API key needed.
+                $credJson = Join-Path $env:USERPROFILE '.claude\.credentials.json'
+                if (Test-Path $credJson) { return 'claude login auth (~/.claude/.credentials.json)' }
+                # Legacy fallback (older Claude Code).
+                $credLegacy = Join-Path $env:USERPROFILE '.claude\credentials'
+                if (Test-Path $credLegacy) { return '~/.claude/credentials present' }
                 return $null
             } `
-            -Remediation 'Set ANTHROPIC_API_KEY or run `claude login`'
+            -Remediation 'Run `claude login` (no ANTHROPIC_API_KEY needed) or set ANTHROPIC_API_KEY'
 
         Test-Prereq -Name 'Free disk space >= 100 MB' -Severity 'fail' `
             -Check {
