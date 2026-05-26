@@ -425,21 +425,27 @@ function Copy-Bundle {
     $runtimeSrcRoot = Join-Path $BundleRoot 'src\dlc_bridge'
     $runtimeDstRoot = Join-Path $Script:Target '.kiro\powers\dlc-supercharge\runtime\src\dlc_bridge'
     if (-not (Test-Path $runtimeSrcRoot)) {
-        Write-Err "  Bridge runtime source missing at $runtimeSrcRoot — Power bundle integrity error"
+        Write-Err "  Bridge runtime source missing at $runtimeSrcRoot - Power bundle integrity error"
         exit 9
     }
     Copy-RuntimeTree -Source $runtimeSrcRoot -Dest $runtimeDstRoot
     $runtimeFileCount = (Get-ChildItem -Path $runtimeDstRoot -Recurse -File | Measure-Object).Count
     Write-Ok "  Vendored bridge runtime: $runtimeFileCount file(s) at $runtimeDstRoot"
 
-    # Copy pyproject.toml + uv.lock alongside the vendored package so uv can install it.
+    # Copy pyproject.toml + uv.lock + README.md alongside the vendored package so uv can install it.
+    # README.md is required because pyproject.toml declares `readme = "README.md"` and hatchling
+    # validates the file's existence during wheel build.
     $runtimePyproject = Join-Path $BundleRoot 'pyproject.toml'
     $runtimeUvLock    = Join-Path $BundleRoot 'uv.lock'
+    $runtimeReadme    = Join-Path $BundleRoot 'README.md'
     Copy-IfDifferent -Source $runtimePyproject -Dest (Join-Path $Script:Target '.kiro\powers\dlc-supercharge\runtime\pyproject.toml') | Out-Null
     if (Test-Path $runtimeUvLock) {
         Copy-IfDifferent -Source $runtimeUvLock -Dest (Join-Path $Script:Target '.kiro\powers\dlc-supercharge\runtime\uv.lock') | Out-Null
     }
-    Write-Ok "  Vendored runtime pyproject.toml + uv.lock"
+    if (Test-Path $runtimeReadme) {
+        Copy-IfDifferent -Source $runtimeReadme -Dest (Join-Path $Script:Target '.kiro\powers\dlc-supercharge\runtime\README.md') | Out-Null
+    }
+    Write-Ok "  Vendored runtime pyproject.toml + uv.lock + README.md"
 }
 
 # === Phase 4.5: target-workspace uv sync against vendored bridge runtime (K5 fix) ===
@@ -449,13 +455,13 @@ function Invoke-UvSync {
     $vendoredRuntime = Join-Path $Script:Target '.kiro\powers\dlc-supercharge\runtime'
     $vendoredInit    = Join-Path $vendoredRuntime 'src\dlc_bridge\__init__.py'
     if (-not (Test-Path $vendoredInit)) {
-        Write-Err "  Vendored runtime missing at $vendoredRuntime — Phase 4 should have placed it"
+        Write-Err "  Vendored runtime missing at $vendoredRuntime - Phase 4 should have placed it"
         exit 9
     }
 
     $targetPyproject = Join-Path $Script:Target 'pyproject.toml'
     if (Test-Path $targetPyproject) {
-        # Pre-existing target pyproject — Option A (per tech-design § 4.5):
+        # Pre-existing target pyproject - Option A (per tech-design section 4.5):
         # warn + manual instructions, do NOT clobber. Hooks won't resolve dlc_bridge
         # until the user merges the dependency themselves.
         Write-Warn "  Target workspace already has pyproject.toml at $targetPyproject"
@@ -469,38 +475,66 @@ function Invoke-UvSync {
     # Write the target pyproject from the bundled template.
     $template = Join-Path $BundleRoot 'dist\config\target-workspace-pyproject.toml.template'
     if (-not (Test-Path $template)) {
-        Write-Err "  Target-workspace pyproject template missing at $template — Power bundle integrity error"
+        Write-Err "  Target-workspace pyproject template missing at $template - Power bundle integrity error"
         exit 9
     }
     Copy-Item -Path $template -Destination $targetPyproject -Force
     Write-Ok "  Wrote $targetPyproject (target-workspace pyproject)"
 
+    # Invoke uv sync. Two PowerShell+uv gotchas to handle:
+    #
+    # 1) uv prints progress + status to stderr by design. Under
+    #    $ErrorActionPreference=Stop, redirecting stderr to stdout (2>&1)
+    #    causes every stderr line to fire a NativeCommandError. We lower
+    #    the preference locally so we can capture stderr without aborting,
+    #    and trust the uv $LASTEXITCODE to detect real failures.
+    #
+    # 2) If the user's shell inherits a `VIRTUAL_ENV` env var pointing at
+    #    a different project's venv (very common in IDE-launched terminals
+    #    after the user has been working elsewhere), uv reports
+    #    `failed to locate pyvenv.cfg`. Clear VIRTUAL_ENV inside the
+    #    uv invocation scope to force uv to resolve the workspace venv
+    #    from $PWD instead.
     Push-Location $Script:Target
+    $savedPref = $ErrorActionPreference
+    $savedVenv = $env:VIRTUAL_ENV
+    $ErrorActionPreference = 'Continue'
+    if (Test-Path Env:VIRTUAL_ENV) { Remove-Item Env:VIRTUAL_ENV }
     try {
         & uv sync 2>&1 | ForEach-Object { Write-Host "  $_" }
-        if ($LASTEXITCODE -ne 0) {
-            Write-Err "  uv sync failed (exit $LASTEXITCODE) at $Script:Target"
-            Write-Err "  Check Python availability: uv python install 3.11"
-            exit 9
-        }
-        Write-Ok "  uv sync complete (target=$Script:Target)"
+        $rc = $LASTEXITCODE
     } finally {
+        $ErrorActionPreference = $savedPref
+        if ($savedVenv) { $env:VIRTUAL_ENV = $savedVenv }
         Pop-Location
     }
+    if ($rc -ne 0) {
+        Write-Err "  uv sync failed (exit $rc) at $Script:Target"
+        Write-Err "  Check Python availability: uv python install 3.11"
+        exit 9
+    }
+    Write-Ok "  uv sync complete (target=$Script:Target)"
 
     # Verify the bridge is importable from the target venv (K5 acceptance).
     Push-Location $Script:Target
+    $savedPref = $ErrorActionPreference
+    $savedVenv = $env:VIRTUAL_ENV
+    $ErrorActionPreference = 'Continue'
+    if (Test-Path Env:VIRTUAL_ENV) { Remove-Item Env:VIRTUAL_ENV }
     try {
         $verify = & uv run python -c "import dlc_bridge; print('OK')" 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0 -or -not ($verify -match 'OK')) {
-            Write-Err "  Bridge runtime sync succeeded but import failed:"
-            Write-Err "  $verify"
-            exit 9
-        }
-        Write-Ok "  Bridge runtime importable: dlc_bridge resolved from $vendoredRuntime"
+        $rc = $LASTEXITCODE
     } finally {
+        $ErrorActionPreference = $savedPref
+        if ($savedVenv) { $env:VIRTUAL_ENV = $savedVenv }
         Pop-Location
     }
+    if ($rc -ne 0 -or -not ($verify -match 'OK')) {
+        Write-Err "  Bridge runtime sync succeeded but import failed:"
+        Write-Err "  $verify"
+        exit 9
+    }
+    Write-Ok "  Bridge runtime importable: dlc_bridge resolved from $vendoredRuntime"
 }
 
 # === Phase 5: Optional .dlc.config.json (FR-19) ===
@@ -587,19 +621,24 @@ function Invoke-SmokeTests {
         $failures++
     }
 
-    # Test 3: POWER.md frontmatter has 5 keys
+    # Test 3: POWER.md frontmatter has the required keys.
+    # We validate key presence (not a hard count) so adding optional fields
+    # like `author` does not break the smoke. Required keys mirror the
+    # Kiro Power convention: name, version, displayName, description, keywords.
     $powerMd = Join-Path $Script:Target '.kiro\powers\dlc-supercharge\POWER.md'
     if (Test-Path $powerMd) {
         $lines = Get-Content $powerMd
-        $inFM = $false; $keyCount = 0
+        $inFM = $false; $keys = @()
         foreach ($line in $lines) {
             if ($line -eq '---') { if ($inFM) { break } else { $inFM = $true; continue } }
-            if ($inFM -and $line -match '^[a-zA-Z]+:') { $keyCount++ }
+            if ($inFM -and $line -match '^([a-zA-Z]+):') { $keys += $matches[1] }
         }
-        if ($keyCount -eq 5) {
-            Write-Ok "  POWER.md frontmatter: 5 keys"
+        $required = @('name', 'version', 'displayName', 'description', 'keywords')
+        $missing = @($required | Where-Object { $_ -notin $keys })
+        if ($missing.Count -eq 0) {
+            Write-Ok "  POWER.md frontmatter: $($keys.Count) keys (required keys present: $($required -join ', '))"
         } else {
-            Write-Err "  POWER.md frontmatter: expected 5 keys, got $keyCount"
+            Write-Err "  POWER.md frontmatter: missing required keys: $($missing -join ', '). Got: $($keys -join ', ')"
             $failures++
         }
     } else {

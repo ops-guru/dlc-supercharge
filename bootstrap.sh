@@ -399,12 +399,17 @@ phase4_copy() {
     runtime_file_count=$(find "$runtime_dst" -type f | wc -l | tr -d ' ')
     ok "  Vendored bridge runtime: $runtime_file_count file(s) at $runtime_dst"
 
-    # Copy pyproject.toml + uv.lock alongside the vendored package so uv can install it.
+    # Copy pyproject.toml + uv.lock + README.md alongside the vendored package so uv can install it.
+    # README.md is required because pyproject.toml declares `readme = "README.md"` and hatchling
+    # validates the file's existence during wheel build.
     copy_if_different "$BUNDLE_ROOT/pyproject.toml" "$TARGET/.kiro/powers/dlc-supercharge/runtime/pyproject.toml"
     if [ -f "$BUNDLE_ROOT/uv.lock" ]; then
         copy_if_different "$BUNDLE_ROOT/uv.lock" "$TARGET/.kiro/powers/dlc-supercharge/runtime/uv.lock"
     fi
-    ok "  Vendored runtime pyproject.toml + uv.lock"
+    if [ -f "$BUNDLE_ROOT/README.md" ]; then
+        copy_if_different "$BUNDLE_ROOT/README.md" "$TARGET/.kiro/powers/dlc-supercharge/runtime/README.md"
+    fi
+    ok "  Vendored runtime pyproject.toml + uv.lock + README.md"
 }
 
 # === Phase 4.5: target-workspace uv sync against vendored bridge runtime (K5 fix) ===
@@ -436,7 +441,10 @@ phase4_5_uv_sync() {
     cp "$template" "$target_pyproject"
     ok "  Wrote $target_pyproject (target-workspace pyproject)"
 
+    # Clear inherited VIRTUAL_ENV inside the subshell so uv resolves the
+    # workspace venv from $PWD instead of an unrelated project's venv.
     (
+        unset VIRTUAL_ENV
         cd "$TARGET" && uv sync 2>&1 | sed 's/^/  /'
         exit ${PIPESTATUS[0]}
     )
@@ -450,7 +458,7 @@ phase4_5_uv_sync() {
 
     # Verify import (K5 acceptance).
     local verify
-    verify=$(cd "$TARGET" && uv run python -c "import dlc_bridge; print('OK')" 2>&1)
+    verify=$( (unset VIRTUAL_ENV; cd "$TARGET" && uv run python -c "import dlc_bridge; print('OK')" 2>&1) )
     if [ "$?" -ne 0 ] || ! echo "$verify" | grep -q 'OK'; then
         err "  Bridge runtime sync succeeded but import failed:"
         err "  $verify"
@@ -537,15 +545,22 @@ phase6_smoke() {
         failures=$((failures+1))
     fi
 
-    # Test 3: POWER.md frontmatter has 5 keys
+    # Test 3: POWER.md frontmatter has the required keys.
+    # Validate key presence (not a hard count) so optional fields like `author` don't break smoke.
     local power_md="$TARGET/.kiro/powers/dlc-supercharge/POWER.md"
     if [ -f "$power_md" ]; then
-        local key_count
-        key_count=$(awk '/^---$/{c++; next} c==1 && /^[a-zA-Z]+:/{print $1}' "$power_md" | wc -l)
-        if [ "$key_count" -eq 5 ]; then
-            ok "  POWER.md frontmatter: 5 keys"
+        local keys missing
+        keys=$(awk '/^---$/{c++; next} c==1 && /^[a-zA-Z]+:/{sub(":.*", ""); print}' "$power_md" | tr '\n' ' ')
+        missing=""
+        for req in name version displayName description keywords; do
+            if ! echo " $keys " | grep -q " $req "; then
+                missing="$missing $req"
+            fi
+        done
+        if [ -z "$missing" ]; then
+            ok "  POWER.md frontmatter: required keys present ($(echo $keys | wc -w) total)"
         else
-            err "  POWER.md frontmatter: expected 5 keys, got $key_count"
+            err "  POWER.md frontmatter: missing required keys:$missing. Got: $keys"
             failures=$((failures+1))
         fi
     else
