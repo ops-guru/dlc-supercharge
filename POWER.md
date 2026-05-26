@@ -83,27 +83,53 @@ State coordination happens through `.dlc/<slug>/state.md` — the same file DLC'
 
 `dlc.config.json.template` — empty-defaults template the installer optionally copies to `<workspace>/.dlc.config.json` for per-workspace tuning.
 
+## When to load steering files
+
+Kiro evaluates installed Powers' steering files dynamically based on conversation context. For DLC SuperCharge:
+
+| User intent | Steering file to load |
+|---|---|
+| **First-time install** — workspace has no `.kiro/hooks/check-dlc-job.kiro.hook` yet | [`steering/dlc-supercharge-onboarding.md`](steering/dlc-supercharge-onboarding.md) — runs bootstrap + prereq checks + smoke tests on the user's behalf |
+| **Normal operation** — any `/dlc:` keyword after install is complete | [`steering/dlc-augment.md`](steering/dlc-augment.md) — two-lane dispatcher (Kiro-native subagents vs headless bridge) + Flow Orchestration phase mapping |
+
+If both apply, read `dlc-supercharge-onboarding.md` FIRST and only proceed to normal operation once bootstrap has exited 0 and the smoke tests pass.
+
 ## Installation
 
-`bootstrap.{ps1,sh}` installers are produced in Epic 5 — coming soon. Until then, install manually by copying:
+Two paths — pick whichever fits the user's environment:
 
-- `dist/hooks/*.kiro.hook` → `<workspace>/.kiro/hooks/`
-- `dist/agents/*.md` → `<workspace>/.kiro/agents/`
-- `dist/scripts/*` → `<workspace>/.kiro/scripts/`
-- `dist/templates/verb-tasks/*.txt` → `<workspace>/.kiro/powers/dlc-supercharge/templates/verb-tasks/`
-- `steering/dlc-augment.md` → `<workspace>/.kiro/steering/dlc-augment.md`
+### Path A — Kiro "Add Power from GitHub" (recommended)
 
-Prerequisite: Claude Code CLI installed and the `/dlc:` plugin loaded (`~/.claude/plugins/cache/dlc-automation/dlc/<version>/skills/`).
+1. In Kiro IDE: **Settings → Powers → Add a custom Kiro power → Import power from GitHub**.
+2. Paste the repo URL: `https://github.com/ops-guru/kiro-bridge-poc`.
+3. Kiro caches `POWER.md`, `mcp.json`, and `steering/` under `~/.kiro/powers/installed/dlc-supercharge/` and auto-registers in `~/.kiro/powers/installed.json`.
+4. On first invocation of any `/dlc:` keyword in a workspace, Kiro loads [`steering/dlc-supercharge-onboarding.md`](steering/dlc-supercharge-onboarding.md) — the agent runs prereq checks, clones the repo into a scratch path, executes `bootstrap.{ps1,sh} --no-register-kiro-power` (Kiro already did the user-scoped registration), runs smoke tests, then routes to normal operation.
+
+### Path B — clone + run bootstrap manually (CI / fleet deploys)
+
+```powershell
+# Windows
+git clone https://github.com/ops-guru/kiro-bridge-poc
+powershell -NoProfile -ExecutionPolicy Bypass -File kiro-bridge-poc/dlc-supercharge/bootstrap.ps1
+```
+
+```bash
+# POSIX
+git clone https://github.com/ops-guru/kiro-bridge-poc
+bash kiro-bridge-poc/dlc-supercharge/bootstrap.sh
+```
+
+Bootstrap is idempotent — safe to re-run for upgrades. See [`steering/dlc-supercharge-onboarding.md`](steering/dlc-supercharge-onboarding.md) for the full step-by-step bootstrap does, prereqs (`claude`, `uv`, `gh`, `git`), and failure-mode triage.
 
 ## Quick start
 
-After install, smoke-test from the Kiro hook panel:
+After install (either path), verify by triggering the simplest hook from Kiro's Agent Hooks panel:
 
-1. Trigger the `map-codebase` hook
-2. Provide a target subsystem path (e.g., `src/auth/`)
-3. Wait for `.dlc/maps/<sanitized-target>.map.md` to appear
+1. Fire `check-dlc-job` (read-only — lists bridge jobs, no API spend).
+2. Expect: `NO_JOBS=no .dlc/_bridge-jobs/ directory` on a fresh workspace, terminal `HOOK_DONE`.
+3. Then try `map-codebase` against a target subsystem path (e.g., `src/auth/`); wait for `.dlc/maps/<sanitized-target>.map.md` to appear (~3 min, ~$0.50 API spend).
 
-If the map is produced, the bridge + plugin + permission chain works.
+If both produce expected output, the bridge + plugin + Kiro hook chain is healthy.
 
 ## Architecture
 
