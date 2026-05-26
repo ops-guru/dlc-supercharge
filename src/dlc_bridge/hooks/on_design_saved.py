@@ -14,7 +14,8 @@ Markers: ``STAGE``, ``TRIGGER``, ``SLUG``, ``STATE_INITIALIZED`` /
 ``ID_PROPAGATE_ZERO_MATCHES`` / ``ID_PROPAGATE_NO_ENTRIES`` /
 ``ID_PROPAGATE_SKIPPED``, ``REVIEW_AVAILABLE``, ``DOMAINS``,
 ``REVIEW_STARTING``, ``REVIEW_OK``, ``REVIEW_FAILED``,
-``REVIEWS_SKIPPED``, ``STATE_ADVANCED``, terminal ``PROBE_DEBOUNCED`` /
+``REVIEWS_SKIPPED``, ``STATE_ADVANCED``, ``SELF_WRITE_RECORDED``,
+terminal ``PROBE_DEBOUNCED`` / ``PROBE_SELF_FIRE`` /
 ``HOOK_INIT_SKIPPED`` / ``HOOK_INIT_DONE`` / ``HOOK_REVIEWS_DONE`` /
 ``HOOK_REVIEWS_PARTIAL`` / ``HOOK_FINALIZE_DONE`` / ``BRIDGE_FAILED``.
 """
@@ -29,6 +30,7 @@ from dlc_bridge.hooks import _common
 from dlc_bridge.util import debounce as debounce_mod
 from dlc_bridge.util import emit
 from dlc_bridge.util import id_propagate
+from dlc_bridge.util import self_writes
 from dlc_bridge.util import slug as slug_mod
 from dlc_bridge.util import state as state_mod
 
@@ -225,6 +227,17 @@ def _stage_init(args, slug_root) -> int:
         _common.emit_terminal("HOOK_INIT_SKIPPED")
         return 0
 
+    # Self-fire suppression (Issue #8): if design.md's current hash matches
+    # a recent self-write (e.g. our own id_propagate from the previous fire),
+    # skip the bridge entirely. Cache wouldn't help because source hash
+    # differs from cached value.
+    if self_writes.is_self_fire(
+        file_path=Path(args.source), slug_root=slug_path
+    ):
+        emit.emit_marker("PROBE_SELF_FIRE", args.source)
+        _common.emit_terminal("HOOK_INIT_SKIPPED")
+        return 0
+
     emit.emit_marker("BRIDGE_STARTING", "produce-tech-design")
     result = _common.invoke_bridge(
         "produce-tech-design",
@@ -257,6 +270,17 @@ def _stage_init(args, slug_root) -> int:
     else:
         emit.emit_marker(
             "ID_PROPAGATE_SKIPPED", f"tech-design missing at {tech_design}"
+        )
+
+    # Record the post-init hash of design.md so the next fire (triggered by
+    # id_propagate's mutation, within the TTL window) can recognise this as
+    # a self-write and suppress (Issue #8).
+    digest = self_writes.record(
+        file_path=Path(args.source), slug_root=slug_path
+    )
+    if digest:
+        emit.emit_marker(
+            "SELF_WRITE_RECORDED", f"design.md sha256={digest[:16]}"
         )
 
     # Surface previously-recorded reviewer findings so the agent can cross-check.
