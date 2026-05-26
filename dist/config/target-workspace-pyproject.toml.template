@@ -1,0 +1,17 @@
+# Managed by DLC SuperCharge bootstrap — do not edit manually.
+# To upgrade the bridge runtime, re-run bootstrap from the latest Power bundle.
+# The actual runtime lives at .kiro/powers/dlc-supercharge/runtime/ (vendored
+# by Phase 4 of the bootstrap).
+
+[project]
+name = "dlc-supercharge-workspace"
+version = "0.0.0"
+description = "Workspace consuming the DLC SuperCharge bridge runtime"
+requires-python = ">=3.11"
+
+dependencies = [
+    "dlc-bridge",
+]
+
+[tool.uv.sources]
+dlc-bridge = { path = ".kiro/powers/dlc-supercharge/runtime", editable = false }

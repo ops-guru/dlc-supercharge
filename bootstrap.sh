@@ -20,6 +20,7 @@ WITH_DLC_CONFIG=0
 NO_SMOKE_TESTS=0
 NO_REGISTER_KIRO_POWER=0
 NO_AUTO_INSTALL_UV=0
+NO_AUTO_INSTALL_PLUGIN=0
 QUIET=0
 CLONE_DIR=""
 
@@ -39,6 +40,8 @@ Options:
   --no-auto-install-uv      Skip Phase 1.5 auto-install of uv (Astral Python launcher).
                             If uv is missing, exit 9 with manual-install URL.
                             Use in corporate envs that prohibit curl|sh installers (NFR-8).
+  --no-auto-install-plugin  Skip Phase 2.5 auto-install of /dlc: Claude Code plugin.
+                            If plugin cache is missing, exit 9 with manual install commands.
   --quiet                   Suppress non-error output and playbook
   -h, --help                Show this help
 
@@ -56,6 +59,7 @@ while [ "$#" -gt 0 ]; do
         --no-smoke-tests)  NO_SMOKE_TESTS=1; shift;;
         --no-register-kiro-power) NO_REGISTER_KIRO_POWER=1; shift;;
         --no-auto-install-uv) NO_AUTO_INSTALL_UV=1; shift;;
+        --no-auto-install-plugin) NO_AUTO_INSTALL_PLUGIN=1; shift;;
         --quiet)           QUIET=1; shift;;
         -h|--help)         usage; exit 0;;
         *) printf '[bootstrap] ERROR: unknown option: %s\n' "$1" >&2; usage; exit 9;;
@@ -233,6 +237,56 @@ phase1_5_resolve_uv() {
     ok "  uv installed at $(command -v uv)"
 }
 
+# === Phase 2.5: /dlc: plugin auto-install (K4 fix) ===
+phase2_5_resolve_dlc_plugin() {
+    log "Phase 2.5: Detect /dlc: Claude Code plugin"
+    CACHE_ROOT="$HOME/.claude/plugins/cache/dlc-automation/dlc"
+    has_cache() {
+        [ -d "$CACHE_ROOT" ] || return 1
+        for v in "$CACHE_ROOT"/*/; do
+            [ -d "${v}skills" ] && return 0
+        done
+        return 1
+    }
+    if has_cache; then
+        ok "  /dlc: plugin cache present at $CACHE_ROOT"
+        return
+    fi
+    if [ "$NO_AUTO_INSTALL_PLUGIN" -eq 1 ]; then
+        err "  /dlc: plugin not installed and --no-auto-install-plugin set. Install manually:"
+        err "    claude plugin marketplace add ops-guru/dlc-plugin"
+        err "    claude plugin install dlc@dlc-automation"
+        exit 9
+    fi
+    log "  /dlc: plugin cache missing; installing via Claude plugin registry"
+    # Step 1: marketplace add (idempotent — only run if absent)
+    if ! claude plugin marketplace list 2>&1 | grep -q 'dlc-automation'; then
+        log "    Adding marketplace: ops-guru/dlc-plugin"
+        if ! claude plugin marketplace add ops-guru/dlc-plugin; then
+            err "  claude plugin marketplace add failed. Install manually:"
+            err "    claude plugin marketplace add ops-guru/dlc-plugin"
+            err "    claude plugin install dlc@dlc-automation"
+            exit 9
+        fi
+    else
+        ok "    Marketplace dlc-automation already configured"
+    fi
+    # Step 2: install plugin
+    log "    Installing plugin: dlc@dlc-automation"
+    if ! claude plugin install dlc@dlc-automation; then
+        err "  claude plugin install failed. Install manually:"
+        err "    claude plugin install dlc@dlc-automation"
+        exit 9
+    fi
+    # Step 3: re-check cache
+    if ! has_cache; then
+        err "  Plugin install reported success but cache still missing at $CACHE_ROOT"
+        err "  File an issue at https://github.com/ops-guru/dlc-supercharge/issues"
+        exit 9
+    fi
+    ok "  /dlc: plugin installed (auto) at $CACHE_ROOT"
+}
+
 # === Phase 3: Idempotency check ===
 phase3_idempotent() {
     log "Phase 3: Idempotency check"
@@ -315,32 +369,102 @@ phase4_copy() {
     if [ "$STAT_SKIPPED" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
         warn "$STAT_SKIPPED file(s) differ from bundle but were preserved. Use --force to overwrite them."
     fi
+
+    # K5 fix: vendor the bridge runtime so target workspaces have it locally.
+    log "Phase 4 (continued): vendor bridge runtime"
+    local runtime_src="$BUNDLE_ROOT/src/dlc_bridge"
+    local runtime_dst="$TARGET/.kiro/powers/dlc-supercharge/runtime/src/dlc_bridge"
+    if [ ! -d "$runtime_src" ]; then
+        err "  Bridge runtime source missing at $runtime_src — Power bundle integrity error"
+        exit 9
+    fi
+    mkdir -p "$runtime_dst"
+    # rsync if available (handles excludes cleanly); fall back to find+cp.
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a --exclude='__pycache__' --exclude='*.pyc' "$runtime_src/" "$runtime_dst/"
+    else
+        (
+            cd "$runtime_src" && find . -type f \
+                -not -path './__pycache__/*' \
+                -not -path '*/__pycache__/*' \
+                -not -name '*.pyc' \
+                -print0 | while IFS= read -r -d '' f; do
+                    parent=$(dirname "$runtime_dst/$f")
+                    [ -d "$parent" ] || mkdir -p "$parent"
+                    cp "$f" "$runtime_dst/$f"
+                done
+        )
+    fi
+    local runtime_file_count
+    runtime_file_count=$(find "$runtime_dst" -type f | wc -l | tr -d ' ')
+    ok "  Vendored bridge runtime: $runtime_file_count file(s) at $runtime_dst"
+
+    # Copy pyproject.toml + uv.lock + README.md alongside the vendored package so uv can install it.
+    # README.md is required because pyproject.toml declares `readme = "README.md"` and hatchling
+    # validates the file's existence during wheel build.
+    copy_if_different "$BUNDLE_ROOT/pyproject.toml" "$TARGET/.kiro/powers/dlc-supercharge/runtime/pyproject.toml"
+    if [ -f "$BUNDLE_ROOT/uv.lock" ]; then
+        copy_if_different "$BUNDLE_ROOT/uv.lock" "$TARGET/.kiro/powers/dlc-supercharge/runtime/uv.lock"
+    fi
+    if [ -f "$BUNDLE_ROOT/README.md" ]; then
+        copy_if_different "$BUNDLE_ROOT/README.md" "$TARGET/.kiro/powers/dlc-supercharge/runtime/README.md"
+    fi
+    ok "  Vendored runtime pyproject.toml + uv.lock + README.md"
 }
 
-# === Phase 4.5: uv sync (FR-20) ===
+# === Phase 4.5: target-workspace uv sync against vendored bridge runtime (K5 fix) ===
 phase4_5_uv_sync() {
-    log "Phase 4.5: Sync Python environment with uv"
-    local sync_root
-    if [ -f "$TARGET/pyproject.toml" ]; then
-        sync_root="$TARGET"
-    else
-        sync_root="$BUNDLE_ROOT"
+    log "Phase 4.5: Sync target workspace Python env (vendored bridge runtime)"
+
+    local vendored_runtime="$TARGET/.kiro/powers/dlc-supercharge/runtime"
+    if [ ! -f "$vendored_runtime/src/dlc_bridge/__init__.py" ]; then
+        err "  Vendored runtime missing at $vendored_runtime — Phase 4 should have placed it"
+        exit 9
     fi
-    if [ ! -f "$sync_root/pyproject.toml" ]; then
-        warn "  No pyproject.toml at $sync_root; skipping uv sync (will be needed once the Python bridge bundle ships)"
+
+    local target_pyproject="$TARGET/pyproject.toml"
+    if [ -f "$target_pyproject" ]; then
+        # Option A (per tech-design § 4.5): warn + manual instructions, do NOT clobber.
+        warn "  Target workspace already has pyproject.toml at $target_pyproject"
+        warn "  Add this to install the bridge runtime, then re-run bootstrap:"
+        warn "    [project] dependencies = ['dlc-bridge']"
+        warn "    [tool.uv.sources] dlc-bridge = { path = '.kiro/powers/dlc-supercharge/runtime', editable = false }"
+        warn "  Skipping write to avoid clobbering user content; bridge hooks will fail until merged."
         return
     fi
+
+    local template="$BUNDLE_ROOT/dist/config/target-workspace-pyproject.toml.template"
+    if [ ! -f "$template" ]; then
+        err "  Target-workspace pyproject template missing at $template — Power bundle integrity error"
+        exit 9
+    fi
+    cp "$template" "$target_pyproject"
+    ok "  Wrote $target_pyproject (target-workspace pyproject)"
+
+    # Clear inherited VIRTUAL_ENV inside the subshell so uv resolves the
+    # workspace venv from $PWD instead of an unrelated project's venv.
     (
-        cd "$sync_root" && uv sync 2>&1 | sed 's/^/  /'
+        unset VIRTUAL_ENV
+        cd "$TARGET" && uv sync 2>&1 | sed 's/^/  /'
         exit ${PIPESTATUS[0]}
     )
     local rc=$?
     if [ "$rc" -ne 0 ]; then
-        err "  uv sync failed (exit $rc) at $sync_root"
+        err "  uv sync failed (exit $rc) at $TARGET"
         err "  Check Python availability: uv python install 3.11"
         exit 9
     fi
-    ok "  uv sync complete ($sync_root)"
+    ok "  uv sync complete (target=$TARGET)"
+
+    # Verify import (K5 acceptance).
+    local verify
+    verify=$( (unset VIRTUAL_ENV; cd "$TARGET" && uv run python -c "import dlc_bridge; print('OK')" 2>&1) )
+    if [ "$?" -ne 0 ] || ! echo "$verify" | grep -q 'OK'; then
+        err "  Bridge runtime sync succeeded but import failed:"
+        err "  $verify"
+        exit 9
+    fi
+    ok "  Bridge runtime importable: dlc_bridge resolved from $vendored_runtime"
 }
 
 # === Phase 5: Optional .dlc.config.json (FR-19) ===
@@ -421,15 +545,22 @@ phase6_smoke() {
         failures=$((failures+1))
     fi
 
-    # Test 3: POWER.md frontmatter has 5 keys
+    # Test 3: POWER.md frontmatter has the required keys.
+    # Validate key presence (not a hard count) so optional fields like `author` don't break smoke.
     local power_md="$TARGET/.kiro/powers/dlc-supercharge/POWER.md"
     if [ -f "$power_md" ]; then
-        local key_count
-        key_count=$(awk '/^---$/{c++; next} c==1 && /^[a-zA-Z]+:/{print $1}' "$power_md" | wc -l)
-        if [ "$key_count" -eq 5 ]; then
-            ok "  POWER.md frontmatter: 5 keys"
+        local keys missing
+        keys=$(awk '/^---$/{c++; next} c==1 && /^[a-zA-Z]+:/{sub(":.*", ""); print}' "$power_md" | tr '\n' ' ')
+        missing=""
+        for req in name version displayName description keywords; do
+            if ! echo " $keys " | grep -q " $req "; then
+                missing="$missing $req"
+            fi
+        done
+        if [ -z "$missing" ]; then
+            ok "  POWER.md frontmatter: required keys present ($(echo $keys | wc -w) total)"
         else
-            err "  POWER.md frontmatter: expected 5 keys, got $key_count"
+            err "  POWER.md frontmatter: missing required keys:$missing. Got: $keys"
             failures=$((failures+1))
         fi
     else
@@ -492,8 +623,9 @@ phase6_5_register_kiro_power() {
 
 # === Main ===
 phase1_resolve
-phase2_prereqs
 phase1_5_resolve_uv
+phase2_5_resolve_dlc_plugin
+phase2_prereqs
 phase3_idempotent
 phase4_copy
 phase4_5_uv_sync
