@@ -6,33 +6,44 @@ A Kiro Power that bridges the `/dlc:` Claude Code plugin into Kiro IDE's AIDLC w
 
 ## Install
 
-### Option 1 — Local clone + bootstrap (recommended)
+### Option 1 — Kiro "Add Power from GitHub" (one-click; recommended for end users)
+
+Most ergonomic path. Uses Kiro's native Power import UI:
+
+1. In Kiro IDE → **Settings → Powers → Add a custom Kiro power → Import power from GitHub**.
+2. Paste the repo URL: `https://github.com/ops-guru/kiro-bridge-poc` (or your fork).
+3. Kiro caches `POWER.md`, `mcp.json`, and `steering/` into `~/.kiro/powers/installed/dlc-supercharge/` and registers the Power in `~/.kiro/powers/installed.json` + `~/.kiro/powers/registries/user-added.json`.
+4. On first `/dlc:` keyword in a workspace, Kiro loads [`steering/dlc-supercharge-onboarding.md`](steering/dlc-supercharge-onboarding.md). The agent runs prereq checks, `git clone`s the repo into a scratch path, executes `bootstrap.{ps1,sh} --no-register-kiro-power` (Kiro has already handled the user-scoped registration), runs the 3 embedded smoke tests, then routes to normal operation.
+
+The agent does not require user intervention beyond approving the bootstrap bash call. If a prereq is missing (no `claude` / `uv` / `gh` / `git`), the agent surfaces the install pointer and stops.
+
+### Option 2 — Local clone + bootstrap (CI / fleet deploys)
 
 ```powershell
 # Windows
-git clone <power-url> dlc-supercharge
+git clone https://github.com/ops-guru/kiro-bridge-poc dlc-supercharge
 powershell -NoProfile -ExecutionPolicy Bypass -File dlc-supercharge\bootstrap.ps1 -Into .
 ```
 
 ```bash
 # POSIX
-git clone <power-url> dlc-supercharge
+git clone https://github.com/ops-guru/kiro-bridge-poc dlc-supercharge
 bash dlc-supercharge/bootstrap.sh --into .
 ```
 
-### Option 2 — Direct from git URL
+### Option 3 — Direct from git URL
 
 ```powershell
-powershell -File dlc-supercharge\bootstrap.ps1 -FromGit https://github.com/<owner>/dlc-supercharge -Into .
+powershell -File dlc-supercharge\bootstrap.ps1 -FromGit https://github.com/ops-guru/kiro-bridge-poc -Into .
 ```
 
 ```bash
-bash dlc-supercharge/bootstrap.sh --from-git https://github.com/<owner>/dlc-supercharge --into .
+bash dlc-supercharge/bootstrap.sh --from-git https://github.com/ops-guru/kiro-bridge-poc --into .
 ```
 
 The `--from-git` flag clones the Power into a temp dir, runs install, cleans up on success.
 
-### Option 3 — Manual file copy
+### Option 4 — Manual file copy
 
 Copy bundle contents into target workspace:
 - `dist/hooks/*.kiro.hook` → `<workspace>/.kiro/hooks/`
