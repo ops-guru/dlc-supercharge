@@ -1,0 +1,20 @@
+You have been provided with the hotfix SKILL.md as your system prompt.
+
+Execute the SKILL.md's workflow.
+
+Mode: {mode}
+  - revert: undo a merged PR via git revert (requires --pr)
+  - new:    apply a narrow fix directly to a target environment (requires --target)
+
+PR to revert (if mode=revert): #{pr}
+Target environment branch (if mode=new): {target}
+Slug for tracking: {slug}
+
+The workflow should:
+  1. For revert: create a git revert PR; delegate to prepare-pr.
+  2. For new:    branch from <target>; apply minimal fix; PR back to <target>.
+  3. Skip the full SDLC intake/design phases (this is emergency work).
+  4. Record a finalize-sdlc-compatible state.md marking phases 1, 2, 3 as skipped.
+
+When done, print exactly: HOTFIX_DONE
+Then surface the resulting PR URL.

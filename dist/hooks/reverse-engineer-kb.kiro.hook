@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "reverse-engineer-kb",
+  "description": "DLC: build a Knowledge Base from a legacy codebase (3-pass Haiku/Sonnet/Opus scan). Shell work is consolidated into dlc_bridge.hooks.reverse_engineer_kb (Python module) to avoid Kiro shell-execution buffer corruption.",
+  "when": {
+    "type": "userTriggered",
+    "patterns": []
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "DLC SuperCharge - Reverse-Engineer Knowledge Base.\n\nStep 1 (input): Ask the user for: (a) target = path to the legacy codebase, (b) mode = 'full' (default) or 'incremental' (skip unchanged modules), (c) max-files cap (default 500 for cost control).\n\nStep 2: Use Bash to run exactly this single command:\n\n  uv run python -m dlc_bridge.hooks.reverse_engineer_kb --target <target> --mode <mode> --max-files <max>\n\nOn BRIDGE_FAILED, surface BRIDGE_EXIT + bridge stderr and stop. Otherwise capture JOB_ID and LOG.\n\nStep 3 (surface): Print 'KB build started in background (job <JOB_ID>). 15-60 min expected. Use check-dlc-job to monitor. Tail: Get-Content <LOG> -Wait. Artifacts will land at .dlc/kb/{index.json, modules/MOD-*.md, architecture.md}.' Suggest next: (a) after the KB build, run kb-gap-analysis against a requirements doc, (b) map a specific subsystem in depth via map-codebase. End with <HOOK_DONE>."
+  }
+}

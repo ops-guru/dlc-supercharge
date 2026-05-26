@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "on-tasks-saved",
+  "description": "DLC SuperCharge D-minus: fires when a Kiro Spec tasks.md is saved. Phase 3 (planning) chain: plan-implementation bridge + TC-x/T-x propagation + _iteration-state.md preserve/init. Shell work is consolidated into dlc_bridge.hooks.on_tasks_saved (Python module) to avoid Kiro shell-execution buffer corruption.",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [".kiro/specs/**/tasks.md"]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "DLC SuperCharge - On Tasks Saved (Phase 3 planning chain).\n\nStep 0 (notify the user IMMEDIATELY, BEFORE any Bash or other tool call): Surface this exact line as plain chat text so Kiro renders it visibly in the conversation:\n\n  ⏳ DLC: starting plan-implementation in the background — typically 5–10 minutes. Don't re-prompt; I will surface results when the bridge completes.\n\nThis is essential: Kiro chat does not stream the long-running Bash subprocess output, so without this pre-flight notice the user sees an idle chat and assumes the task is finished.\n\nStep 1 (init): Use Bash to run exactly this single command:\n\n  uv run python -m dlc_bridge.hooks.on_tasks_saved --source <triggering-file>\n\nCapture stdout. The wrapper prints KEY=value lines and ends with one of: PROBE_DEBOUNCED, HOOK_INIT_SKIPPED (paired with PROBE_SELF_FIRE), BRIDGE_FAILED, or HOOK_INIT_DONE.\n\n- PROBE_DEBOUNCED: stop silently.\n- PROBE_SELF_FIRE: stop silently — this fire was triggered by our own previous write to tasks.md (id_propagate / epic_inject / Kiro task-completion edit) and there is no new work to do.\n- BRIDGE_FAILED: surface BRIDGE_EXIT + bridge stderr, then stop.\n- Otherwise parse SLUG, PLAN, and ITERATION_STATE_* entries.\n\nNote: Epic markers in tasks.md are handled by the Python wrapper's epic_inject step. No agent-side editing of tasks.md is needed (doing so would cause a self-fire loop — see Issue #8).\n\nStep 2 (finalize): Use Bash to run:\n\n  uv run python -m dlc_bridge.hooks.on_tasks_saved --source <triggering-file> --stage finalize\n\nExpect HOOK_FINALIZE_DONE.\n\nStep 3 (surface): Print Epic list with task counts. End with: 'Plan ready. Use /dlc:build epic-001 to execute the first Epic.' + <HOOK_DONE>."
+  }
+}

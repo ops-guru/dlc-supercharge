@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "on-pr-opened",
+  "description": "DLC SuperCharge D-minus: fires (userTriggered) when a PR is opened. Phase 4 -> 5 chain: record PR number, advance state, dispatch babysit-pr in background, then push a synthesised PR description. Shell work is consolidated into dlc_bridge.hooks.on_pr_opened (Python module) to avoid Kiro shell-execution buffer corruption.",
+  "when": {
+    "type": "userTriggered",
+    "patterns": []
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "DLC SuperCharge - On PR Opened (Phase 4 -> 5 chain).\n\nStep 1 (input): Ask the user for: (a) the PR number (extract integer if a URL was supplied), (b) babysit mode = 'default' or 'aggressive'.\n\nStep 2 (init): Use Bash to run exactly this single command (substitute --slug only if the user supplied one):\n\n  uv run python -m dlc_bridge.hooks.on_pr_opened --pr <N> --mode <mode>\n\nThe wrapper records the PR number, advances state to Phase 4, dispatches the babysit-pr bridge, and prints KEY=value lines ending in HOOK_INIT_DONE or BRIDGE_FAILED. Capture SLUG and BABYSIT_JOB.\n\nStep 3 (agent-side: PR description): Read .dlc/<SLUG>/requirements.prd.md, designs/tech-design.md, plans/epic-001.plan.md, and analysis_output/security-review.md (if present). Synthesize a PR description with sections: Summary (2-3 sentences), Changes by Epic, Reviewer focus, Test plan. Use Bash to run: gh pr edit <N> --body \"<text>\".\n\nStep 4 (finalize): Use Bash to run:\n\n  uv run python -m dlc_bridge.hooks.on_pr_opened --pr <N> --slug <SLUG> --job-id <BABYSIT_JOB> --stage finalize\n\nExpect HOOK_FINALIZE_DONE.\n\nStep 5 (surface): Print: 'PR #<N> for <SLUG> now under DLC babysit (job <BABYSIT_JOB>). Use check-dlc-job to monitor.' + <HOOK_DONE>."
+  }
+}

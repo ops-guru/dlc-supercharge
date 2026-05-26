@@ -2,6 +2,34 @@
 
 All notable changes to DLC SuperCharge are documented in this file. Format: [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/). Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-05-26 — dist/ sync with v2.0 runtime
+
+The v2.0.0 Python migration updated this repo's **workspace** state (`.kiro/hooks/*` invoke `uv run python -m dlc_bridge.hooks.<name>`; `.kiro/scripts/*.ps1/sh` removed) but never updated the `dlc-supercharge/dist/` bundle that `bootstrap.{ps1,sh}` ships to fresh installs. Result: any user who installed via the bootstrap or "Add Power from GitHub" since v2.0.0 was actually getting the **v1.x runtime** — v1.x hook prompts → v1.x PS/bash scripts → direct `claude -p` invocation, with the v2.0 Python package at `src/dlc_bridge/` not in the call graph at all.
+
+This release brings the dist/ bundle into alignment with the v2.0 runtime. No source code under `src/dlc_bridge/` changes — only bundled artifacts and the docs/steering that describe them.
+
+### Changed
+
+- **`dlc-supercharge/dist/hooks/*.kiro.hook` (14 files)** — synced from this repo's workspace `.kiro/hooks/`. All 14 now invoke `uv run python -m dlc_bridge.hooks.<name>` instead of `.kiro/scripts/dlc-bridge.{ps1,sh}`. Includes the four v2.0.1 patches (heading-format tolerance, BRIDGE_PROGRESS heartbeats, pre-flight chat notice, self-fire suppression).
+- **`dlc-supercharge/steering/dlc-augment.md` + workspace mirror** — replaced `.kiro/scripts/dlc-bridge.ps1` references with the Python wrapper invocation pattern. Added a parenthetical historical note pointing to v2.0 retirement of the PS/bash scripts.
+- **`.kiro/DLC-SUPERCHARGE-README.md` (workspace docs)** — Lane 2 ASCII diagram and troubleshooting section updated to the Python wrapper invocation. The exit-code-contract pointer now points to `uv run dlc-bridge help` instead of the dead PS script's help text.
+
+### Removed
+
+- **`dlc-supercharge/dist/scripts/{dlc-bridge,dlc-bridge-retry,dlc-bridge-status,dlc-bridge-verbs,debounce-check,id-propagate,mode-resolve,slug-derive,state-update}.{ps1,sh}` (18 files)** — all retired in v2.0.0 (replaced by `src/dlc_bridge/`) but the `dist/` copies were never deleted. Only `register-kiro-power.{ps1,sh}` remains in `dist/scripts/` (still live — Kiro registry registration has no Python equivalent yet).
+- **`bootstrap.{ps1,sh}` v1.1 fallback smoke-test path** — bootstrap's "Test 2: bridge dry-run" no longer falls back to `.kiro/scripts/dlc-bridge.{ps1,sh}` when the Python bridge fails. Those scripts no longer ship; the fallback was unreachable. Failure of the Python bridge smoke now fails the install (was: warned then attempted fallback).
+
+### Migration
+
+- Existing installs that used the workspace path (this repo cloned + bootstrap run, then v2.0.0 in-place migration) are unaffected — those already have v2.0 hooks at `<workspace>/.kiro/hooks/` and the Python bridge under `src/dlc_bridge/`.
+- Existing installs that used the bootstrap-from-source-bundle path on a different workspace **and were last installed at any v2.0.x ≤ 2.0.1** should re-run `bootstrap.{ps1,sh}` to pick up the v2.0 hook bodies and remove the orphan `.kiro/scripts/*.ps1/sh` files. Bootstrap is idempotent and the file-copy logic will overwrite stale dist content.
+
+### Validated
+
+- All 353 unit tests still pass (no `src/` changes).
+- 14 dist/hooks/*.kiro.hook files parse as valid JSON.
+- `grep -rE "\.kiro/scripts/(dlc-bridge|debounce|id-propagate|mode-resolve|slug-derive|state-update)" dlc-supercharge/ .kiro/` returns no results in tracked files (one intentional historical reference remains in `dlc-supercharge/HACKATHON-DRESS-REHEARSAL.md` § 4).
+
 ## [2.0.1] - 2026-05-25 — feedback-collector e2e fixes
 
 Four patches discovered empirically by running a real Kiro Spec end-to-end (a tiny FastAPI feedback-collector app) through the full DLC SuperCharge flow. Each fix addresses a distinct class of bug that synthetic-fixture unit tests cannot surface. Full retrospective: [E2E-RETRO-2026-05-25.md](E2E-RETRO-2026-05-25.md).

@@ -1,0 +1,17 @@
+You have been provided with the review-pr SKILL.md as your system prompt.
+
+Execute the SKILL.md's complete workflow on PR #{pr}.
+
+The workflow should:
+  1. Collect full PR context: diff, linked issues, PRD/design/plan artifacts,
+     CI status, prior review comments.
+  2. Run multi-dimensional analysis (security, performance, correctness,
+     error handling, code quality, test adequacy, consistency, risk).
+  3. Ground findings in official documentation via Context7 / web search.
+  4. Post inline PR review comments via gh CLI.
+  5. Optionally produce a structured markdown report.
+
+When done, print exactly: REVIEW_PR_DONE
+Then surface: number of findings by severity (Critical / High / Med / Low / Info),
+recommendation (Approve / Request Changes / Comment), and top 3 findings as
+one-line excerpts.

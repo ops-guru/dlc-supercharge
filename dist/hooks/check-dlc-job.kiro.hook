@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "check-dlc-job",
+  "description": "DLC: list active and recent background DLC bridge jobs from .dlc/_bridge-jobs/ status files. Shell work is consolidated into dlc_bridge.hooks.check_dlc_job (Python module) to avoid Kiro shell-execution buffer corruption.",
+  "when": {
+    "type": "userTriggered",
+    "patterns": []
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "DLC SuperCharge - Check Job Status.\n\nStep 1: Use Bash to run exactly this single command:\n\n  uv run python -m dlc_bridge.hooks.check_dlc_job\n\nIf NO_JOBS is emitted, surface 'No DLC jobs found. Run a /dlc:* hook to create one.' and stop.\n\nStep 2 (render): The wrapper prints one JOB=id=<id>|verb=<v>|status=<s>|started=<t>|ended=<t>|exit=<n>|pid=<n>|log=<p> line per job (sorted newest first, max 20) plus COUNT_RUNNING / COUNT_COMPLETE / COUNT_ERROR / COUNT_CANCELLED / COUNT_CACHE_HIT. Render a markdown table with columns: Job ID | Verb | Status | Started | Ended | Exit | PID | Log.\n\nStep 3 (summary + tips): After the table, summarise '<R> running, <C> complete, <H> cache-hit, <E> error, <X> cancelled'. For each running job, append 'Tail log: Get-Content <log> -Wait'. For each error or cancelled job, show the last 10 lines of its log if the file exists. Cache-hit entries have no log file — they represent zero-cost short-circuits via the bridge hash-cache (the cached artifact path is recorded in the status file's cachedArtifact field).\n\nStatus meanings:\n  running    - bridge is in-flight (claude -p active or background job running)\n  complete   - finished with exitCode 0\n  cache-hit  - bridge short-circuited via hash-cache; no claude -p invocation, no log; artifact path in cachedArtifact field\n  error      - finished with non-zero exitCode (see exit column for the contract: 2=no-claude, 3=no-plugin, 4=bad-input, 5=retries-exhausted, 6=skill-error, 7=cancelled)\n  cancelled  - job was interrupted (Ctrl+C / SIGTERM) before completion"
+  }
+}

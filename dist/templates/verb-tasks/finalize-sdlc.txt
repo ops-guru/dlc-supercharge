@@ -1,0 +1,18 @@
+You have been provided with the finalize-sdlc SKILL.md as your system prompt.
+
+Execute the SKILL.md's complete workflow.
+
+Slug: {slug}
+PR number (the merged feature PR): {pr}
+
+The workflow should:
+  1. Verify PR #{pr} is actually merged (gh CLI).
+  2. Run Phase 7 completion: remove .dlc/{slug}/state.md, produce a final summary,
+     archive telemetry under .dlc/{slug}/telemetry.jsonl.
+  3. Run Phase 8 post-merge: close the linked GitHub issue, update any epic
+     checklist, append the close-out outcome to the Decisions Log.
+
+When done, print exactly: FINALIZE_SDLC_DONE
+Then list: closed issues, epic checklist status, any remaining open work.
+
+If PR #{pr} is NOT merged, do NOT proceed. Report the state and stop.

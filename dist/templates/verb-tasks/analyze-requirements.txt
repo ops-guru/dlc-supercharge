@@ -1,0 +1,21 @@
+You have been provided with the analyze-requirements SKILL.md as your system prompt.
+
+Execute the SKILL.md's complete workflow.
+
+Source (requirements input): {source}
+Slug for output scoping: {slug}
+
+The workflow should:
+  1. Parse the source (GitHub issue, PRD, free-form description, or existing discovery.md).
+  2. Build a structured PRD with FR-x / NFR-x IDs, MoSCoW priorities,
+     user stories, RAID log, and gap analysis grounded in the current codebase.
+  3. Run a concerns-heuristics scan (security/UX/a11y/compliance/vulnerable populations).
+
+Required artifact:
+  - .dlc/{slug}/requirements.prd.md
+
+When done, print exactly: ANALYZE_REQUIREMENTS_DONE
+Then list:
+  - Number of FRs (Must / Should / Could / Won't)
+  - Number of NFRs
+  - Recommended formal reviews (security/ux/a11y/perf) per the concerns scan

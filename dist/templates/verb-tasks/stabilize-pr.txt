@@ -1,0 +1,15 @@
+You have been provided with the stabilize-pr SKILL.md as your system prompt.
+
+Execute the SKILL.md's complete workflow on PR #{pr} with mode: {mode}.
+
+The workflow should:
+  1. Monitor CI checks; classify failures (branch-related vs flaky vs design-defect).
+  2. Triage automated Claude review comments and human reviewer comments.
+  3. Auto-fix high-confidence issues (lint, type, format, dependency, build).
+  4. Manage flaky reruns with per-SHA budget (default 3 reruns).
+  5. Iterate up to 5 fix-up cycles.
+  6. On 2nd repeated failure, write .dlc/<slug>/escalation-context.md and
+     return blocked (signals dispatcher to re-route to Phase 2c for design delta).
+
+When done, print exactly: STABILIZE_PR_DONE
+Then surface: CI status, fix cycles used, comments resolved, escalation state.

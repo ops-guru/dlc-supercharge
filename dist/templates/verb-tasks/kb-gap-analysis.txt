@@ -1,0 +1,25 @@
+You have been provided with the kb-gap-analysis SKILL.md as your system prompt.
+
+Execute the SKILL.md's complete workflow.
+
+Source (requirements file): {source}
+KB root: {kb}
+Mode: {mode}
+
+The workflow should:
+  1. Parse the source (xlsx/csv/md-table) into rows.
+  2. Match each row against KB modules at {kb}/modules/MOD-*.md.
+  3. Classify each row as COVERED, PARTIAL, or NOT_COVERED, with KB citations.
+  4. Write a side-by-side copy of the source with 3 new columns:
+     KB_Gap_Status, KB_Ref, KB_Coverage.
+
+Required artifacts:
+  - <source>_with_gap.xlsx (or .csv matching source extension)
+  - .dlc/<slug>/gap-analysis/aggregated.json
+  - .dlc/<slug>/gap-analysis/report.md
+
+When done, print exactly: KB_GAP_ANALYSIS_DONE
+Then list: COVERED N rows, PARTIAL M rows, NOT_COVERED K rows.
+
+If the KB at {kb} doesn't exist or is empty, do NOT proceed - report the
+blocker and suggest running reverse-engineer-kb first.

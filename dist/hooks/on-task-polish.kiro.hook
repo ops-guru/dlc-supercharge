@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "on-task-polish",
+  "description": "DLC SuperCharge: postTaskExecution pre-commit polish. The wrapper gates on .dlc.config.json -> defaults.taskPolish and emits the diff + style profile; the agent dispatches dlc-doc-writer and then asks the wrapper to verify behavior unchanged. Shell work is consolidated into dlc_bridge.hooks.on_task_polish (Python module) to avoid Kiro shell-execution buffer corruption.",
+  "when": {
+    "type": "postTaskExecution",
+    "patterns": []
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "DLC SuperCharge - Per-Task Polish.\n\nStep 1: Use Bash to run exactly this single command:\n\n  uv run python -m dlc_bridge.hooks.on_task_polish\n\nCapture KEY=value output. If GATE_SKIPPED was emitted, stop silently. Otherwise capture SLUG, STYLE_PROFILE, STYLE_SAMPLES, and the DIFF_FILE entries.\n\nStep 2 (agent-side): Dispatch dlc-doc-writer with the listed diff files + STYLE_PROFILE. Instructions: 'Polish docstrings, comments, and imports to match the existing style. Do NOT change code behavior. Use the matching docstring style for any new public functions.'\n\nStep 3 (verify behavior unchanged): Use Bash to run:\n\n  uv run python -m dlc_bridge.hooks.on_task_polish --stage verify\n\nIf TESTS_SKIPPED was emitted, surface that and stop. Otherwise run the printed TEST_CMD. If tests fail, revert the polish diff with git restore and surface 'Polish regression detected; reverted. Manual review needed.'\n\nStep 4 (surface): Print: 'Polish complete for this task. Diff files: <count>. Style: <STYLE_PROFILE>. Tests still passing.' End with <HOOK_DONE>."
+  }
+}
