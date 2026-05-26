@@ -47,7 +47,7 @@ command -v gh && gh --version
 command -v git && git --version
 ```
 
-If **any** prerequisite is missing, STOP. Print a clear install pointer and ask the user to install it before retrying:
+If **any** of these system tools is missing, STOP. Print a clear install pointer and ask the user to install it before retrying:
 
 | Missing | Install pointer |
 |---|---|
@@ -56,28 +56,30 @@ If **any** prerequisite is missing, STOP. Print a clear install pointer and ask 
 | `gh` | https://cli.github.com |
 | `git` | https://git-scm.com/downloads |
 
-Do NOT attempt to install prerequisites silently. The user must have already approved their installation, and on Windows specifically the elevation prompts can hang a non-interactive shell.
+Do NOT attempt to install these system tools silently — the user must approve their installation, and on Windows the elevation prompts can hang a non-interactive shell. (`uv` is the one exception: bootstrap Phase 1.5 auto-installs it via the Astral script unless `-NoAutoInstallUv` is passed.)
+
+**Do NOT check for, or ask the user to install, the `/dlc:` Claude Code plugin here.** Bootstrap Phase 2.5 auto-installs it (`claude plugin marketplace add ops-guru/dlc-plugin` + `claude plugin install dlc@dlc-automation`) when `claude` is authenticated — no API key required, `claude login` auth is sufficient. Let bootstrap handle it; surfacing a manual plugin-install step here is a known anti-pattern (it pre-empts the auto-install).
 
 ---
 
 ## Install path A — workspace IS the dlc-supercharge source repo
 
-If the user invoked Kiro inside the `kiro-bridge-poc` (or fork) repo itself, `bootstrap.{ps1,sh}` is already on disk. Just run it from `<workspace>/dlc-supercharge/`:
+If the user invoked Kiro inside the `dlc-supercharge` repo itself (or a fork), `bootstrap.{ps1,sh}` is already on disk at the **repo root**. Just run it:
 
 ```powershell
 # Windows
-powershell -NoProfile -ExecutionPolicy Bypass -File dlc-supercharge/bootstrap.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File bootstrap.ps1
 ```
 
 ```bash
 # POSIX
-bash dlc-supercharge/bootstrap.sh
+bash bootstrap.sh
 ```
 
 Detect this case by:
 
 ```bash
-test -f dlc-supercharge/bootstrap.sh && test -f dlc-supercharge/bootstrap.ps1
+test -f bootstrap.sh && test -f bootstrap.ps1 && test -f POWER.md
 ```
 
 Skip install path B if this matches.
@@ -86,23 +88,23 @@ Skip install path B if this matches.
 
 ## Install path B — workspace is somewhere else (typical Kiro install)
 
-Kiro's native installer has cached `POWER.md` + `steering/` at `~/.kiro/powers/installed/dlc-supercharge/`, but `bootstrap.{ps1,sh}` and `dist/` are not in that cache. Clone the source repo to a scratch path and run bootstrap from there. Bootstrap copies what it needs into `<workspace>/.kiro/` and exits — the clone is throw-away.
+Kiro's native installer has cached `POWER.md` + `steering/` at `~/.kiro/powers/installed/dlc-supercharge/`, but `bootstrap.{ps1,sh}`, `dist/`, and the `src/dlc_bridge/` runtime are not in that cache. Clone the source repo to a scratch path and run bootstrap from there. Bootstrap copies what it needs (including the vendored bridge runtime) into `<workspace>/.kiro/` and exits — the clone is throw-away.
 
 ```bash
 SCRATCH=$(mktemp -d 2>/dev/null || powershell -NoProfile -Command "[System.IO.Path]::GetTempPath() + [System.IO.Path]::GetRandomFileName()")
-git clone --depth 1 https://github.com/ops-guru/kiro-bridge-poc "$SCRATCH"
+git clone --depth 1 https://github.com/ops-guru/dlc-supercharge "$SCRATCH"
 ```
 
-Then run bootstrap from `$SCRATCH/dlc-supercharge/`:
+Then run bootstrap from the clone **root** (the Power bundle lives at the repo root, not a subdir):
 
 ```powershell
 # Windows
-powershell -NoProfile -ExecutionPolicy Bypass -File "$SCRATCH/dlc-supercharge/bootstrap.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "$SCRATCH/bootstrap.ps1"
 ```
 
 ```bash
 # POSIX
-bash "$SCRATCH/dlc-supercharge/bootstrap.sh"
+bash "$SCRATCH/bootstrap.sh"
 ```
 
 After bootstrap exits with status 0, the scratch clone can be removed:
@@ -115,9 +117,12 @@ rm -rf "$SCRATCH"  # or Remove-Item -Recurse -Force on Windows
 
 ## What bootstrap actually does (informational — for the agent's mental model)
 
-1. **Prereq checks** (re-runs the checks above, defensively).
-2. **Detects existing install** — idempotent re-run. If a current install is detected, prints "already installed, skipping" and exits 0.
-3. **Workspace install**: copies `dist/hooks/*.kiro.hook` → `<workspace>/.kiro/hooks/`, `dist/agents/*.md` → `<workspace>/.kiro/agents/`, `dist/scripts/*` → `<workspace>/.kiro/scripts/`, `dist/templates/verb-tasks/*.txt` → `<workspace>/.kiro/powers/dlc-supercharge/templates/verb-tasks/`, `steering/dlc-augment.md` → `<workspace>/.kiro/steering/dlc-augment.md`.
+1. **Phase 1.5 — uv detection** (auto-installs uv if missing, unless `-NoAutoInstallUv`).
+2. **Phase 2.5 — /dlc: plugin auto-install** (K4): `claude plugin marketplace add ops-guru/dlc-plugin` + `claude plugin install dlc@dlc-automation` if the plugin cache is missing. Works with `claude login` auth — no ANTHROPIC_API_KEY needed. Opt out with `-NoAutoInstallPlugin`.
+3. **Phase 2 — prereq checks** (claude, uv, gh, disk).
+4. **Detects existing install** — idempotent re-run. If a current install is detected, prints "already installed, skipping" and exits 0.
+5. **Workspace install**: copies `dist/hooks/*.kiro.hook` → `<workspace>/.kiro/hooks/`, `dist/agents/*.md` → `<workspace>/.kiro/agents/`, `dist/scripts/*` → `<workspace>/.kiro/scripts/`, `dist/templates/verb-tasks/*.txt` → `<workspace>/.kiro/powers/dlc-supercharge/templates/verb-tasks/`, `steering/dlc-augment.md` → `<workspace>/.kiro/steering/dlc-augment.md`.
+6. **Vendors the Python bridge runtime** (K5): copies `src/dlc_bridge/` + `pyproject.toml` + `uv.lock` + `README.md` → `<workspace>/.kiro/powers/dlc-supercharge/runtime/`, writes a target `<workspace>/pyproject.toml` (uv path-dep on the vendored runtime), runs `uv sync`, and verifies `import dlc_bridge` succeeds. This is what lets the hooks' `uv run python -m dlc_bridge.hooks.<name>` resolve in any workspace.
 4. **User-scoped registration** (Phase 6.5): invokes `register-kiro-power.{ps1,sh}` to register the Power in `~/.kiro/powers/installed.json` + `~/.kiro/powers/registries/user-added.json` and copy POWER.md/mcp.json/steering/ to `~/.kiro/powers/installed/dlc-supercharge/`. **Bypass with `-NoRegisterKiroPower` / `--no-register-kiro-power` when installing via Kiro's native "Add Power from GitHub" UI**, because Kiro itself has already done this step.
 5. **3 embedded smoke tests**: schema validation on the installed hook JSON files, bridge dry-run (`uv run python -m dlc_bridge map-codebase --dry-run`), and POWER.md frontmatter parse.
 6. **Prints the T+0..T+120 hackathon playbook** (informational).
@@ -145,7 +150,8 @@ If `check-dlc-job` exits non-zero or the hooks don't appear, run `<workspace>/.k
 | `claude: command not found` during bootstrap | Claude Code CLI not installed | Tell user to install per https://docs.claude.com/claude-code, retry |
 | `uv: command not found` during bootstrap | uv launcher missing | Tell user to install per the Astral instructions above, retry |
 | Bootstrap exits non-zero in Phase 6.5 | Kiro registry write conflict (e.g., another DLC SuperCharge install is in progress) | Wait 30s, retry; or pass `--no-register-kiro-power` to skip user-scoped registration |
-| Smoke test 2 fails with "dlc_bridge module not found" | `uv sync` didn't run, or the venv is stale | `cd <workspace>/dlc-supercharge && uv sync` then retry |
+| Smoke test 2 fails with "dlc_bridge module not found" | `uv sync` didn't run, or the venv is stale, or an inherited `VIRTUAL_ENV` env var points elsewhere | From `<workspace>`: `unset VIRTUAL_ENV` (POSIX) / `Remove-Item Env:VIRTUAL_ENV` (PS), then `uv sync`, then retry. Confirm the vendored runtime exists at `<workspace>/.kiro/powers/dlc-supercharge/runtime/src/dlc_bridge/`. |
+| Bootstrap stops at "Install the /dlc: plugin" instead of auto-installing | Running an OLD bootstrap (pre-K4), or `claude` not authenticated | Ensure you cloned `ops-guru/dlc-supercharge` (not the legacy `kiro-bridge-poc`) and ran `bootstrap` from the repo ROOT. Confirm `claude` is logged in (`claude login`). |
 | Hooks don't appear in Kiro's Agent Hooks panel after install | Kiro didn't refresh `.kiro/` | Tell user to reload the `.kiro/` folder in Kiro IDE (right-click → Refresh) |
 
 ---

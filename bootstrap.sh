@@ -173,14 +173,18 @@ phase2_prereqs() {
     fi
     prereq_check 'gh CLI on PATH' 'warn' 'Install GitHub CLI from https://cli.github.com (needed for babysit-pr, hotfix-revert verbs)'
 
-    # Anthropic auth (warn only)
+    # Anthropic auth (warn only).
+    # `claude login` stores OAuth creds in ~/.claude/.credentials.json (leading
+    # dot + .json), NOT ~/.claude/credentials. No ANTHROPIC_API_KEY needed.
     PREREQ_RESULT="fail"; PREREQ_DETAIL=""
     if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
         PREREQ_RESULT="pass"; PREREQ_DETAIL="ANTHROPIC_API_KEY set"
+    elif [ -f "$HOME/.claude/.credentials.json" ]; then
+        PREREQ_RESULT="pass"; PREREQ_DETAIL="claude login auth (~/.claude/.credentials.json)"
     elif [ -f "$HOME/.claude/credentials" ]; then
         PREREQ_RESULT="pass"; PREREQ_DETAIL="~/.claude/credentials present"
     fi
-    prereq_check 'Anthropic auth configured' 'warn' 'Set ANTHROPIC_API_KEY or run claude login'
+    prereq_check 'Anthropic auth configured' 'warn' 'Run claude login (no ANTHROPIC_API_KEY needed) or set ANTHROPIC_API_KEY'
 
     # Disk space >= 100 MB
     PREREQ_RESULT="fail"; PREREQ_DETAIL=""
