@@ -54,6 +54,94 @@ def test_debounce_short_circuit(
     assert invoke_bridge_stub.calls == []
 
 
+def test_self_fire_short_circuit(
+    tmp_path: Path,
+    invoke_bridge_stub: BridgeInvocationRecorder,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_state_funcs: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Self-fire suppression (Issue #8): when tasks.md's current hash
+    matches a recently-recorded self-write, skip bridge + id_propagate +
+    epic_inject entirely.
+    """
+    from dlc_bridge.util import debounce as debounce_mod, self_writes
+    monkeypatch.setattr(debounce_mod, "check_debounce_keyed", lambda **kw: True)
+
+    tasks = _make_spec_file(tmp_path)
+    dlc_root = tmp_path / ".dlc"
+    slug_path = dlc_root / "myslug"
+    # Simulate the previous fire's recording.
+    self_writes.record(file_path=tasks, slug_root=slug_path)
+
+    rc = on_tasks_saved.main(
+        [
+            "--source", str(tasks),
+            "--dlc-root", str(dlc_root),
+            "--debounce-state-path", str(tmp_path / "_fires.json"),
+        ]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "PROBE_SELF_FIRE" in out
+    assert "HOOK_INIT_SKIPPED" in out
+    # Bridge must not be called.
+    assert invoke_bridge_stub.calls == []
+    # And we should not have emitted HOOK_INIT_DONE.
+    assert "HOOK_INIT_DONE" not in out
+
+
+def test_self_fire_only_matches_exact_content(
+    tmp_path: Path,
+    invoke_bridge_stub: BridgeInvocationRecorder,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_state_funcs: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """If the file changed AFTER recording (e.g. user edit), the new
+    content's hash won't match the registry → proceed with the bridge."""
+    from dlc_bridge.util import (
+        debounce as debounce_mod,
+        epic_inject,
+        id_propagate,
+        self_writes,
+    )
+    monkeypatch.setattr(debounce_mod, "check_debounce_keyed", lambda **kw: True)
+    monkeypatch.setattr(
+        id_propagate,
+        "propagate_ids",
+        lambda **kw: {"propagated": [], "unmapped": [], "threshold": 0.3},
+    )
+    monkeypatch.setattr(
+        epic_inject,
+        "inject_epic_dir",
+        lambda *a, **kw: {"injected": 0, "skipped": 0, "failed": 0},
+    )
+
+    tasks = _make_spec_file(tmp_path)
+    dlc_root = tmp_path / ".dlc"
+    slug_path = dlc_root / "myslug"
+    # Record an OLD hash.
+    self_writes.record(file_path=tasks, slug_root=slug_path)
+    # User edits the file — hash changes.
+    tasks.write_text("# Tasks\n+ user added content\n", encoding="utf-8")
+
+    invoke_bridge_stub.set_next(returncode=0, stdout="")
+    rc = on_tasks_saved.main(
+        [
+            "--source", str(tasks),
+            "--dlc-root", str(dlc_root),
+            "--debounce-state-path", str(tmp_path / "_fires.json"),
+        ]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "PROBE_SELF_FIRE" not in out
+    # Bridge should be called normally.
+    assert invoke_bridge_stub.calls, "bridge should fire on a real edit"
+    assert "HOOK_INIT_DONE" in out
+
+
 def test_init_happy_path(
     tmp_path: Path,
     invoke_bridge_stub: BridgeInvocationRecorder,

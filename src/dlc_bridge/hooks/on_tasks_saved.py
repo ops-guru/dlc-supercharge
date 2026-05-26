@@ -14,9 +14,10 @@ Markers: ``STAGE``, ``TRIGGER``, ``SLUG``, ``STATE_INITIALIZED``,
 ``ID_PROPAGATE_ZERO_MATCHES`` / ``ID_PROPAGATE_NO_ENTRIES`` /
 ``ID_PROPAGATE_SKIPPED``,
 ``EPIC_INJECTED``, ``EPIC_SKIPPED``, ``INJECT_SUMMARY``,
-``ITERATION_STATE_INITIALIZED``, ``ITERATION_STATE_PRESERVED``,
-``DECISION_LOG_APPENDED``, terminal ``PROBE_DEBOUNCED`` /
-``BRIDGE_FAILED`` / ``HOOK_INIT_DONE`` / ``HOOK_FINALIZE_DONE``.
+``SELF_WRITE_RECORDED``, ``ITERATION_STATE_INITIALIZED``,
+``ITERATION_STATE_PRESERVED``, ``DECISION_LOG_APPENDED``, terminal
+``PROBE_DEBOUNCED`` / ``PROBE_SELF_FIRE`` / ``BRIDGE_FAILED`` /
+``HOOK_INIT_SKIPPED`` / ``HOOK_INIT_DONE`` / ``HOOK_FINALIZE_DONE``.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from dlc_bridge.util import debounce as debounce_mod
 from dlc_bridge.util import emit
 from dlc_bridge.util import epic_inject
 from dlc_bridge.util import id_propagate
+from dlc_bridge.util import self_writes
 from dlc_bridge.util import slug as slug_mod
 from dlc_bridge.util import state as state_mod
 from dlc_bridge.util.encoding import atomic_write_utf8_lf
@@ -176,6 +178,18 @@ def main(argv: list[str] | None = None) -> int:
     else:
         emit.emit_marker("STATE_EXISTS", str(state_path))
 
+    # Self-fire suppression (Issue #8): if the current trigger file's
+    # content hash matches a recently-recorded self-write (e.g. our own
+    # id_propagate or epic_inject from the previous fire), skip the bridge
+    # entirely. The cache wouldn't help because the source hash differs
+    # from the cached value, and a re-run produces near-identical output.
+    if self_writes.is_self_fire(
+        file_path=Path(trigger_path), slug_root=slug_path
+    ):
+        emit.emit_marker("PROBE_SELF_FIRE", trigger_path)
+        _common.emit_terminal("HOOK_INIT_SKIPPED")
+        return 0
+
     emit.emit_marker("BRIDGE_STARTING", "plan-implementation")
     result = _common.invoke_bridge(
         "plan-implementation",
@@ -225,6 +239,16 @@ def main(argv: list[str] | None = None) -> int:
         # epic_inject.inject_epic_dir emits its own EPIC_INJECTED /
         # EPIC_SKIPPED / INJECT_SUMMARY markers via emit_marker.
         epic_inject.inject_epic_dir(plan_dir, Path(trigger_path))
+
+    # Record the post-init hash of tasks.md so the next fire (triggered
+    # by id_propagate's or epic_inject's mutation, or by Kiro's later
+    # task-completion edits within the TTL window) can recognise this
+    # as a self-write and suppress (Issue #8).
+    digest = self_writes.record(
+        file_path=Path(trigger_path), slug_root=slug_path
+    )
+    if digest:
+        emit.emit_marker("SELF_WRITE_RECORDED", f"tasks.md sha256={digest[:16]}")
 
     iter_marker = _ensure_iteration_state(plan_dir, slug)
     if iter_marker is not None:

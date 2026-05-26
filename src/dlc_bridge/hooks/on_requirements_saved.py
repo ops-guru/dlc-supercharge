@@ -16,9 +16,11 @@ cached PRD; surfaced from the subprocess stdout via
 ``PRD``, ``ID_PROPAGATED`` / ``ID_PROPAGATE_ZERO_MATCHES`` /
 ``ID_PROPAGATE_NO_ENTRIES`` / ``ID_PROPAGATE_SKIPPED``,
 ``DOMAINS``, ``REVIEW_STARTING``, ``REVIEW_OK``, ``REVIEW_FAILED``,
-``REVIEWS_SKIPPED``, ``STATE_ADVANCED``, terminal ``PROBE_DEBOUNCED`` /
-``HOOK_INIT_DONE`` / ``HOOK_REVIEWS_DONE`` / ``HOOK_REVIEWS_PARTIAL`` /
-``HOOK_FINALIZE_DONE`` / ``BRIDGE_FAILED`` / ``ERROR``.
+``REVIEWS_SKIPPED``, ``STATE_ADVANCED``, ``SELF_WRITE_RECORDED``,
+terminal ``PROBE_DEBOUNCED`` / ``PROBE_SELF_FIRE`` /
+``HOOK_INIT_SKIPPED`` / ``HOOK_INIT_DONE`` / ``HOOK_REVIEWS_DONE`` /
+``HOOK_REVIEWS_PARTIAL`` / ``HOOK_FINALIZE_DONE`` / ``BRIDGE_FAILED`` /
+``ERROR``.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from dlc_bridge.hooks import _common
 from dlc_bridge.util import debounce as debounce_mod
 from dlc_bridge.util import emit
 from dlc_bridge.util import id_propagate
+from dlc_bridge.util import self_writes
 from dlc_bridge.util import slug as slug_mod
 from dlc_bridge.util import state as state_mod
 
@@ -187,6 +190,16 @@ def _stage_init(args, slug_root) -> int:
     else:
         emit.emit_marker("STATE_EXISTS", str(state_path))
 
+    # Self-fire suppression (Issue #8): if requirements.md's current hash
+    # matches a recent self-write (e.g. our own id_propagate from the
+    # previous fire), skip the bridge entirely.
+    if self_writes.is_self_fire(
+        file_path=Path(args.source), slug_root=slug_path
+    ):
+        emit.emit_marker("PROBE_SELF_FIRE", args.source)
+        _common.emit_terminal("HOOK_INIT_SKIPPED")
+        return 0
+
     emit.emit_marker("BRIDGE_STARTING", "analyze-requirements")
     result = _common.invoke_bridge(
         "analyze-requirements",
@@ -215,6 +228,17 @@ def _stage_init(args, slug_root) -> int:
             emit.emit_marker("ID_PROPAGATE_SKIPPED", f"propagate failed: {e}")
     else:
         emit.emit_marker("ID_PROPAGATE_SKIPPED", f"PRD missing at {prd}")
+
+    # Record the post-init hash of requirements.md so the next fire (triggered
+    # by id_propagate's mutation, within the TTL window) can recognise this
+    # as a self-write and suppress (Issue #8).
+    digest = self_writes.record(
+        file_path=Path(args.source), slug_root=slug_path
+    )
+    if digest:
+        emit.emit_marker(
+            "SELF_WRITE_RECORDED", f"requirements.md sha256={digest[:16]}"
+        )
 
     _common.emit_terminal("HOOK_INIT_DONE")
     return 0
