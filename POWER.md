@@ -1,19 +1,10 @@
 ---
-name: dlc-supercharge
-displayName: DLC SuperCharge
-description: Augments Kiro's AIDLC workflow with /dlc: plugin capabilities — legacy-code KB build, requirements gap analysis, multi-dim review (security/ux/a11y/perf), CI babysit, hotfix revert. Two execution lanes (Kiro-native subagents + headless bridge) coordinated through .dlc/<slug>/ artifacts.
-keywords:
-  - dlc
-  - supercharge
-  - kb
-  - reverse-engineer
-  - gap-analysis
-  - babysit
-  - aidlc
-  - sdlc
-  - review
-  - hotfix
-author: alex.michel@equivant.com
+name: "dlc-supercharge"
+version: "2.1.0"
+displayName: "DLC SuperCharge"
+description: "Augments Kiro's AIDLC workflow with /dlc plugin capabilities — legacy-code KB build, requirements gap analysis, multi-dim review (security, ux, a11y, performance), CI babysit, hotfix revert. Two execution lanes (Kiro-native subagents and a headless bridge) coordinated through .dlc/<slug>/ artifacts."
+keywords: ["dlc", "supercharge", "kb", "reverse-engineer", "gap-analysis", "babysit", "aidlc", "sdlc", "review", "hotfix"]
+author: "alex.michel@equivant.com"
 ---
 
 # DLC SuperCharge

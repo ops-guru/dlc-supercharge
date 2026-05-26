@@ -35,6 +35,12 @@
     Use this in corporate environments that prohibit `irm | iex`-style
     installer scripts (per NFR-8).
 
+.PARAMETER NoAutoInstallPlugin
+    Skip Phase 2 auto-install of the `/dlc:` Claude Code plugin
+    (`dlc-automation/dlc`). If the plugin cache is missing, the bootstrap
+    exits 9 with manual install commands. Use this in corporate environments
+    that prefer reviewer-approved plugin installs (per NFR-8).
+
 .EXAMPLE
     .\bootstrap.ps1
     Install into the current directory.
@@ -60,7 +66,8 @@ param(
     [switch]$NoSmokeTests,
     [switch]$Quiet,
     [switch]$NoRegisterKiroPower,
-    [switch]$NoAutoInstallUv
+    [switch]$NoAutoInstallUv,
+    [switch]$NoAutoInstallPlugin
 )
 
 $ErrorActionPreference = 'Stop'
@@ -244,6 +251,58 @@ function Resolve-Uv {
     Write-Ok "  uv installed at $((Get-Command uv).Source)"
 }
 
+# === Phase 2.5: /dlc: plugin auto-install (K4 fix) ===
+function Resolve-DlcPlugin {
+    Write-Step "Phase 2.5: Detect /dlc: Claude Code plugin"
+    $cacheRoot = Join-Path $env:USERPROFILE '.claude\plugins\cache\dlc-automation\dlc'
+    function Test-PluginCache {
+        if (-not (Test-Path $cacheRoot)) { return $false }
+        $versions = @(Get-ChildItem -Directory -Path $cacheRoot -ErrorAction SilentlyContinue |
+                      Where-Object { Test-Path (Join-Path $_.FullName 'skills') })
+        return ($versions.Count -gt 0)
+    }
+    if (Test-PluginCache) {
+        Write-Ok "  /dlc: plugin cache present at $cacheRoot"
+        return
+    }
+    if ($NoAutoInstallPlugin) {
+        Write-Err "  /dlc: plugin not installed and -NoAutoInstallPlugin set. Install manually:"
+        Write-Err "    claude plugin marketplace add ops-guru/dlc-plugin"
+        Write-Err "    claude plugin install dlc@dlc-automation"
+        exit 9
+    }
+    Write-Step "  /dlc: plugin cache missing; installing via Claude plugin registry"
+    # Step 1: ensure marketplace is configured
+    $marketplaces = & claude plugin marketplace list 2>&1 | Out-String
+    if (-not ($marketplaces -match 'dlc-automation')) {
+        Write-Step "    Adding marketplace: ops-guru/dlc-plugin"
+        & claude plugin marketplace add ops-guru/dlc-plugin 2>&1 | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "  claude plugin marketplace add failed (exit $LASTEXITCODE). Install manually:"
+            Write-Err "    claude plugin marketplace add ops-guru/dlc-plugin"
+            Write-Err "    claude plugin install dlc@dlc-automation"
+            exit 9
+        }
+    } else {
+        Write-Ok "    Marketplace dlc-automation already configured"
+    }
+    # Step 2: install the plugin
+    Write-Step "    Installing plugin: dlc@dlc-automation"
+    & claude plugin install dlc@dlc-automation 2>&1 | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "  claude plugin install failed (exit $LASTEXITCODE). Install manually:"
+        Write-Err "    claude plugin install dlc@dlc-automation"
+        exit 9
+    }
+    # Step 3: re-check cache
+    if (-not (Test-PluginCache)) {
+        Write-Err "  Plugin install reported success but cache still missing at $cacheRoot"
+        Write-Err "  File an issue at https://github.com/ops-guru/dlc-supercharge/issues"
+        exit 9
+    }
+    Write-Ok "  /dlc: plugin installed (auto) at $cacheRoot"
+}
+
 # === Phase 3: Idempotency check ===
 function Test-Idempotent {
     Write-Step "Phase 3: Idempotency check"
@@ -285,6 +344,27 @@ function Copy-IfDifferent {
         return 'overwritten'
     }
     return 'skipped-differs'
+}
+
+function Copy-RuntimeTree {
+    # Recursive copy of the bridge runtime that EXCLUDES __pycache__ and *.pyc.
+    # Used to vendor src/dlc_bridge/ into <target>/.kiro/powers/dlc-supercharge/runtime/src/dlc_bridge/.
+    param([string]$Source, [string]$Dest)
+    if (-not (Test-Path $Source)) { return }
+    if (-not (Test-Path $Dest)) { New-Item -ItemType Directory -Force -Path $Dest | Out-Null }
+    Get-ChildItem -Path $Source -Recurse -Force | Where-Object {
+        $_.FullName -notmatch '\\__pycache__(\\|$)' -and $_.Extension -ne '.pyc'
+    } | ForEach-Object {
+        $rel = $_.FullName.Substring($Source.Length).TrimStart('\','/')
+        $destPath = Join-Path $Dest $rel
+        if ($_.PSIsContainer) {
+            if (-not (Test-Path $destPath)) { New-Item -ItemType Directory -Force -Path $destPath | Out-Null }
+        } else {
+            $parent = Split-Path -Parent $destPath
+            if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+            Copy-Item -Path $_.FullName -Destination $destPath -Force
+        }
+    }
 }
 
 function Copy-Bundle {
@@ -336,30 +416,88 @@ function Copy-Bundle {
     if ($stats['skipped-differs'] -gt 0 -and -not $Force) {
         Write-Warn "$($stats['skipped-differs']) file(s) differ from bundle but were preserved. Use -Force to overwrite them."
     }
+
+    # K5 fix: vendor the bridge runtime so target workspaces have it locally.
+    # Source: <BundleRoot>/src/dlc_bridge/ (the canonical Power-repo layout)
+    # Dest:   <Target>/.kiro/powers/dlc-supercharge/runtime/src/dlc_bridge/
+    # Plus pyproject.toml + uv.lock so the vendored package can be uv-installed.
+    Write-Step "Phase 4 (continued): vendor bridge runtime"
+    $runtimeSrcRoot = Join-Path $BundleRoot 'src\dlc_bridge'
+    $runtimeDstRoot = Join-Path $Script:Target '.kiro\powers\dlc-supercharge\runtime\src\dlc_bridge'
+    if (-not (Test-Path $runtimeSrcRoot)) {
+        Write-Err "  Bridge runtime source missing at $runtimeSrcRoot — Power bundle integrity error"
+        exit 9
+    }
+    Copy-RuntimeTree -Source $runtimeSrcRoot -Dest $runtimeDstRoot
+    $runtimeFileCount = (Get-ChildItem -Path $runtimeDstRoot -Recurse -File | Measure-Object).Count
+    Write-Ok "  Vendored bridge runtime: $runtimeFileCount file(s) at $runtimeDstRoot"
+
+    # Copy pyproject.toml + uv.lock alongside the vendored package so uv can install it.
+    $runtimePyproject = Join-Path $BundleRoot 'pyproject.toml'
+    $runtimeUvLock    = Join-Path $BundleRoot 'uv.lock'
+    Copy-IfDifferent -Source $runtimePyproject -Dest (Join-Path $Script:Target '.kiro\powers\dlc-supercharge\runtime\pyproject.toml') | Out-Null
+    if (Test-Path $runtimeUvLock) {
+        Copy-IfDifferent -Source $runtimeUvLock -Dest (Join-Path $Script:Target '.kiro\powers\dlc-supercharge\runtime\uv.lock') | Out-Null
+    }
+    Write-Ok "  Vendored runtime pyproject.toml + uv.lock"
 }
 
-# === Phase 4.5: uv sync (FR-20) ===
+# === Phase 4.5: target-workspace uv sync against vendored bridge runtime (K5 fix) ===
 function Invoke-UvSync {
-    Write-Step "Phase 4.5: Sync Python environment with uv"
-    # If the target has a pyproject.toml, sync there; otherwise sync from the bundle root.
-    $syncRoot = if (Test-Path (Join-Path $Script:Target 'pyproject.toml')) {
-        $Script:Target
-    } else {
-        $BundleRoot
+    Write-Step "Phase 4.5: Sync target workspace Python env (vendored bridge runtime)"
+
+    $vendoredRuntime = Join-Path $Script:Target '.kiro\powers\dlc-supercharge\runtime'
+    $vendoredInit    = Join-Path $vendoredRuntime 'src\dlc_bridge\__init__.py'
+    if (-not (Test-Path $vendoredInit)) {
+        Write-Err "  Vendored runtime missing at $vendoredRuntime — Phase 4 should have placed it"
+        exit 9
     }
-    if (-not (Test-Path (Join-Path $syncRoot 'pyproject.toml'))) {
-        Write-Warn "  No pyproject.toml at $syncRoot; skipping uv sync (will be needed once the Python bridge bundle ships)"
+
+    $targetPyproject = Join-Path $Script:Target 'pyproject.toml'
+    if (Test-Path $targetPyproject) {
+        # Pre-existing target pyproject — Option A (per tech-design § 4.5):
+        # warn + manual instructions, do NOT clobber. Hooks won't resolve dlc_bridge
+        # until the user merges the dependency themselves.
+        Write-Warn "  Target workspace already has pyproject.toml at $targetPyproject"
+        Write-Warn "  Add this to install the bridge runtime, then re-run bootstrap:"
+        Write-Warn "    [project] dependencies = ['dlc-bridge']"
+        Write-Warn "    [tool.uv.sources] dlc-bridge = { path = '.kiro/powers/dlc-supercharge/runtime', editable = false }"
+        Write-Warn "  Skipping write to avoid clobbering user content; bridge hooks will fail until merged."
         return
     }
-    Push-Location $syncRoot
+
+    # Write the target pyproject from the bundled template.
+    $template = Join-Path $BundleRoot 'dist\config\target-workspace-pyproject.toml.template'
+    if (-not (Test-Path $template)) {
+        Write-Err "  Target-workspace pyproject template missing at $template — Power bundle integrity error"
+        exit 9
+    }
+    Copy-Item -Path $template -Destination $targetPyproject -Force
+    Write-Ok "  Wrote $targetPyproject (target-workspace pyproject)"
+
+    Push-Location $Script:Target
     try {
         & uv sync 2>&1 | ForEach-Object { Write-Host "  $_" }
         if ($LASTEXITCODE -ne 0) {
-            Write-Err "  uv sync failed (exit $LASTEXITCODE) at $syncRoot"
+            Write-Err "  uv sync failed (exit $LASTEXITCODE) at $Script:Target"
             Write-Err "  Check Python availability: uv python install 3.11"
             exit 9
         }
-        Write-Ok "  uv sync complete ($syncRoot)"
+        Write-Ok "  uv sync complete (target=$Script:Target)"
+    } finally {
+        Pop-Location
+    }
+
+    # Verify the bridge is importable from the target venv (K5 acceptance).
+    Push-Location $Script:Target
+    try {
+        $verify = & uv run python -c "import dlc_bridge; print('OK')" 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0 -or -not ($verify -match 'OK')) {
+            Write-Err "  Bridge runtime sync succeeded but import failed:"
+            Write-Err "  $verify"
+            exit 9
+        }
+        Write-Ok "  Bridge runtime importable: dlc_bridge resolved from $vendoredRuntime"
     } finally {
         Pop-Location
     }
@@ -529,8 +667,9 @@ function Register-KiroPower {
 # === Main ===
 try {
     Resolve-Target
-    Test-Prereqs
     Resolve-Uv
+    Resolve-DlcPlugin
+    Test-Prereqs
     Test-Idempotent | Out-Null
     Copy-Bundle
     Invoke-UvSync
