@@ -426,43 +426,27 @@ function Invoke-SmokeTests {
         $failures++
     }
 
-    # Test 2: bridge dry-run — prefer the Python bridge (v2.0), fall back to v1.1 PS.
-    $pyBridgeOk = $false
+    # Test 2: bridge dry-run via the v2.0 Python bridge. The v1.1 PS/bash
+    # bridge fallback was removed in the v2.0.1 dist sync — those scripts
+    # no longer ship in dist/scripts/.
     if (Get-Command uv -ErrorAction SilentlyContinue) {
         try {
             $out = & uv run dlc-bridge help 2>&1
             $exit = $LASTEXITCODE
             if ($exit -eq 0 -and ($out -join "`n") -match 'DLC SuperCharge bridge') {
                 Write-Ok "  Python bridge smoke: exit 0, 'DLC SuperCharge bridge' detected"
-                $pyBridgeOk = $true
             } else {
-                Write-Warn "  Python bridge smoke: exit=$exit (will try v1.1 fallback)"
-            }
-        } catch {
-            Write-Warn "  Python bridge smoke failed: $($_.Exception.Message) (will try v1.1 fallback)"
-        }
-    }
-    if (-not $pyBridgeOk) {
-        $bridgePath = Join-Path $Script:Target '.kiro\scripts\dlc-bridge.ps1'
-        if (Test-Path $bridgePath) {
-            try {
-                $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $bridgePath map-codebase -Target . -DryRun 2>&1
-                $exit = $LASTEXITCODE
-                $jsonLine = $out | Where-Object { $_ -match '^\{.*"status".*\}$' } | Select-Object -First 1
-                if ($exit -eq 0 -and $jsonLine) {
-                    Write-Ok "  v1.1 bridge dry-run (fallback): exit 0, JSON returned"
-                } else {
-                    Write-Err "  Bridge dry-run failed for both Python and v1.1: PS exit=$exit"
-                    $failures++
-                }
-            } catch {
-                Write-Err "  Bridge dry-run failed (both v2.0 Python and v1.1 PS): $($_.Exception.Message)"
+                Write-Err "  Python bridge smoke failed: exit=$exit"
+                Write-Err "  Output: $($out -join ' ' | Select-Object -First 1)"
                 $failures++
             }
-        } else {
-            Write-Err "  Bridge dry-run: neither uv+dlc-bridge nor $bridgePath available"
+        } catch {
+            Write-Err "  Python bridge smoke failed: $($_.Exception.Message)"
             $failures++
         }
+    } else {
+        Write-Err "  Bridge dry-run skipped: uv not on PATH (Python bridge unavailable)"
+        $failures++
     }
 
     # Test 3: POWER.md frontmatter has 5 keys

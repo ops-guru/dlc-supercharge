@@ -402,35 +402,23 @@ phase6_smoke() {
         failures=$((failures+1))
     fi
 
-    # Test 2: bridge dry-run — prefer the Python bridge (v2.0), fall back to v1.1 bash.
-    local py_bridge_ok=0
+    # Test 2: bridge dry-run via the v2.0 Python bridge. The v1.1 PS/bash
+    # bridge fallback was removed in the v2.0.1 dist sync — those scripts
+    # no longer ship in dist/scripts/.
     if command -v uv >/dev/null 2>&1; then
         local py_out py_exit
         py_out=$(uv run dlc-bridge help 2>&1)
         py_exit=$?
         if [ "$py_exit" -eq 0 ] && echo "$py_out" | grep -q 'DLC SuperCharge bridge'; then
             ok "  Python bridge smoke: exit 0, 'DLC SuperCharge bridge' detected"
-            py_bridge_ok=1
         else
-            warn "  Python bridge smoke: exit=$py_exit (will try v1.1 fallback)"
-        fi
-    fi
-    if [ "$py_bridge_ok" -eq 0 ]; then
-        local bridge_path="$TARGET/.kiro/scripts/dlc-bridge.sh"
-        if [ -f "$bridge_path" ]; then
-            local out
-            out=$(cd "$TARGET" && bash "$bridge_path" map-codebase --target . --dry-run 2>&1)
-            local exit_code=$?
-            if [ "$exit_code" -eq 0 ] && echo "$out" | grep -qE '"status":[[:space:]]*"dry-run"'; then
-                ok "  v1.1 bridge dry-run (fallback): exit 0, JSON returned"
-            else
-                err "  Bridge dry-run failed for both Python and v1.1: bash exit=$exit_code"
-                failures=$((failures+1))
-            fi
-        else
-            err "  Bridge dry-run: neither uv+dlc-bridge nor $bridge_path available"
+            err "  Python bridge smoke failed: exit=$py_exit"
+            err "  Output: $(echo "$py_out" | head -1)"
             failures=$((failures+1))
         fi
+    else
+        err "  Bridge dry-run skipped: uv not on PATH (Python bridge unavailable)"
+        failures=$((failures+1))
     fi
 
     # Test 3: POWER.md frontmatter has 5 keys

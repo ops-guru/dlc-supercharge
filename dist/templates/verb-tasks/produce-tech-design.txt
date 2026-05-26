@@ -1,0 +1,24 @@
+You have been provided with the produce-tech-design SKILL.md as your system prompt.
+
+Execute the SKILL.md's complete workflow.
+
+Slug: {slug}
+
+Inputs (read from disk):
+  - .dlc/{slug}/requirements.prd.md (FR-x / NFR-x source)
+  - .dlc/{slug}/analysis_output/SECURITY_REVIEW_REPORT.md (if exists - Phase 2b finding)
+  - .dlc/{slug}/designs/ux-review.md (if exists - Phase 2b finding)
+
+The workflow should:
+  1. Deep-explore the current codebase relevant to the requirements (parallel subagents).
+  2. Synthesize high-level + low-level design covering: architecture, data model,
+     APIs, modules, risks, decisions.
+  3. Address every CRITICAL / HIGH security finding from Phase 2b.
+  4. Incorporate UX wireframes from Phase 2b (if present).
+  5. Produce stable IDs: WI-x (Work Items), D-x (Design Decisions), R-x (Risks).
+
+Required artifact:
+  - .dlc/{slug}/designs/tech-design.md
+
+When done, print exactly: PRODUCE_TECH_DESIGN_DONE
+Then list: number of Work Items, top 3 risks, any open questions for the user.

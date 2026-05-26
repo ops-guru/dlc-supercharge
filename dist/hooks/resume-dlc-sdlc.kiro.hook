@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "resume-dlc-sdlc",
+  "description": "DLC SuperCharge D-minus: pick up an interrupted SDLC run from the last recorded phase. Reads .dlc/<slug>/state.md and emits the current phase + suggested next action via dlc_bridge.hooks.resume_dlc_sdlc (Python module) to avoid Kiro shell-execution buffer corruption.",
+  "when": {
+    "type": "userTriggered",
+    "patterns": []
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "DLC SuperCharge - Resume SDLC.\n\nStep 1: Use Bash to run exactly this single command:\n\n  uv run python -m dlc_bridge.hooks.resume_dlc_sdlc\n\nIf AVAILABLE rows are listed, present them to the user (slug::phase format) and ask which slug to resume. Then re-run with --slug <name>:\n\n  uv run python -m dlc_bridge.hooks.resume_dlc_sdlc --slug <name>\n\nIf NO_STATES, surface 'No DLC slugs to resume.' and stop.\n\nStep 2 (surface): Parse SLUG, CURRENT_PHASE, PR (optional), BRANCH (optional), RECENT_DECISION (up to 2), and NEXT_ACTION. Print a 5-line briefing: slug, current phase, PR (if any), last 2 decisions, suggested next action. End with <HOOK_DONE>."
+  }
+}

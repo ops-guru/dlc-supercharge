@@ -1,0 +1,21 @@
+You have been provided with the product-discovery SKILL.md as your system prompt.
+
+Execute the SKILL.md's complete workflow.
+
+Input (idea description or path to a brief): {target}
+
+The workflow should:
+  1. Frame the input (greenfield / brownfield / poc-scoping; quick / standard / deep depth).
+  2. Run parallel research subagents grounding in code + docs + market.
+  3. Select a framework path (JTBD+Lean default; SWOT+Kano / OST / PR-FAQ / Porter-BMC alternatives).
+  4. Walk the user through the framework passes (interactive checkpoints).
+  5. Build a MoSCoW backlog with FR-x / NFR-x IDs.
+  6. Run a concerns heuristics scan + assemble RAID.
+  7. Cluster into proposed PRD scope groupings.
+
+Required artifact:
+  - .dlc/discovery/<date>-<slug>.discovery.md
+
+When done, print exactly: DISCOVER_DONE
+Then summarize: number of FRs/NFRs, MoSCoW breakdown, recommended next slice
+(usually /analyze-requirements on the highest-priority cluster).

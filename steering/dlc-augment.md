@@ -88,7 +88,9 @@ Hooks use `askAgent` action type, which passes a prompt to YOU (Kiro main agent)
 
 ### When shelling out to the bridge
 
-Hook prompts that say "Use Bash to run `.kiro/scripts/dlc-bridge.ps1 ...`" are invoking Lane 2. The bridge spawns Claude Code headless via `claude -p --append-system-prompt-file <SKILL.md>`. For synchronous verbs (e.g., `map-codebase`, `hotfix`), wait for the bridge to return and surface the JSON output. For long-running verbs (`reverse-engineer-kb`, `babysit-pr`), the bridge defaults to background mode and returns a `jobId` + `statusFile` immediately — do NOT block on background jobs. Tell the user to fire `check-dlc-job` to monitor.
+Hook prompts that say "Use Bash to run `uv run python -m dlc_bridge.hooks.<name> ...`" are invoking Lane 2. The wrapper spawns Claude Code headless via `claude -p --append-system-prompt-file <SKILL.md>`. For synchronous verbs (e.g., `map-codebase`, `hotfix`), wait for the bridge to return and surface the JSON output. For long-running verbs (`reverse-engineer-kb`, `babysit-pr`), the bridge defaults to background mode and returns a `jobId` + `statusFile` immediately — do NOT block on background jobs. Tell the user to fire `check-dlc-job` to monitor.
+
+(Pre-v2.0 hooks shelled out to `.kiro/scripts/dlc-bridge.ps1` / `.sh` instead. Those PS/bash scripts were retired in v2.0; the Python package at `src/dlc_bridge/` is now the only runtime.)
 
 The bridge has a documented exit-code contract (0/2/3/4/5/6/7). Don't retry on exit 4 (bad input — user mistake) or exit 5 (retries already exhausted). Surface the exit code verbatim.
 
@@ -169,9 +171,9 @@ The three coexist. Kiro Spec is the user-visible source of truth for the current
 
 ## Bridge invocation
 
-Hooks in Lane 2 call `.kiro/scripts/dlc-bridge.ps1` (or `dlc-bridge.sh` on POSIX). The bridge wraps Claude Code headless mode. The bridge script must be on the PATH or invoked with a full path from the hook.
+Hooks in Lane 2 call `uv run python -m dlc_bridge.hooks.<name> --source <path>` (where `<name>` is e.g. `on_design_saved`, `on_tasks_saved`, `on_requirements_saved`, etc.). The Python wrapper at `src/dlc_bridge/hooks/<name>.py` handles debounce + self-fire suppression + state.md transitions + bridge subprocess + post-bridge id-propagation, then spawns Claude Code headless via `claude -p --append-system-prompt-file <SKILL.md>`. `uv` must be on PATH and the workspace must have a synced `pyproject.toml` env (the bootstrap installer handles this on first install).
 
-If a hook fails because the bridge is missing or Claude Code isn't installed, surface a clear error: "DLC SuperCharge bridge missing. See `.kiro/DLC-SUPERCHARGE-README.md` for setup."
+If a hook fails because `uv` or `claude` isn't on PATH, surface a clear error: "DLC SuperCharge bridge missing. See `.kiro/DLC-SUPERCHARGE-README.md` for setup."
 
 ## Demos and clients
 

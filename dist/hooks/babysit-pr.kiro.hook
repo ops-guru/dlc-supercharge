@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "babysit-pr",
+  "description": "DLC: auto-loop CI stabilization + review-comment triage on a PR until merge-ready. Bounded retry budgets (5 fix cycles, 3 flaky reruns/SHA, 2 escalations). Shell work is consolidated into dlc_bridge.hooks.babysit_pr (Python module) to avoid Kiro shell-execution buffer corruption.",
+  "when": {
+    "type": "userTriggered",
+    "patterns": []
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "DLC SuperCharge - Babysit PR.\n\nStep 1 (input): Ask the user for: (a) PR number (extract integer if a URL was supplied), (b) mode = 'default' or 'aggressive'.\n\nStep 2: Use Bash to run exactly this single command:\n\n  uv run python -m dlc_bridge.hooks.babysit_pr --pr <N> --mode <mode>\n\nCapture KEY=value output. On BRIDGE_FAILED, surface BRIDGE_EXIT + bridge stderr and stop. Otherwise capture JOB_ID and LOG.\n\nStep 3 (surface): Print 'PR #<N> now under DLC babysit (job <JOB_ID>). Loops up to 3 no-progress cycles; aggressive mode reschedules itself 2 hours later. Use check-dlc-job to monitor. Tail: Get-Content <LOG> -Wait.' End with <HOOK_DONE>. Do NOT poll the job from here."
+  }
+}

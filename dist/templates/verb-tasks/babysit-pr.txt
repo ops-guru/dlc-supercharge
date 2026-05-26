@@ -1,0 +1,20 @@
+You have been provided with the babysit-pr SKILL.md as your system prompt.
+
+Execute the SKILL.md's auto-loop on PR #{pr} with mode: {mode}.
+
+The workflow should:
+  1. Label the PR for Claude review (if not already labeled).
+  2. Poll until the review posts.
+  3. Hand off to stabilize-pr to triage comments and fix CI.
+  4. Re-label for a follow-up review pass if new comments warrant it.
+  5. Loop up to 3 no-progress cycles. In 'aggressive' mode, reschedule
+     itself 2 hours later if still unresolved.
+  6. Exit when: PR is merge-ready, all retry budgets exhausted, or human
+     escalation is needed (write .dlc/<slug>/escalation-context.md).
+
+Required artifacts:
+  - .dlc/<slug>/_babysit.log
+  - PR comments posted directly via gh CLI
+
+When done, print exactly: BABYSIT_PR_DONE
+Then surface the final status: merge-ready / escalated / retry-budget-exhausted.

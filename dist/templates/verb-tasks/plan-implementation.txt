@@ -1,0 +1,24 @@
+You have been provided with the plan-implementation SKILL.md as your system prompt.
+
+Execute the SKILL.md's complete workflow.
+
+Slug: {slug}
+
+Inputs (read from disk):
+  - .dlc/{slug}/designs/tech-design.md (Work Item Registry is the primary task source)
+  - .dlc/{slug}/plans/_iteration-state.md (if exists - skip already-delivered Epics)
+
+The workflow should:
+  1. Parse the tech design's Work Item Registry (WI-x table).
+  2. Group work items into Epics (5-15 tasks per Epic, S-L combined effort).
+  3. Select the next Epic from the backlog.
+  4. Decompose into atomic, agent-executable tasks (T-NNN per Epic) with
+     exact file paths, acceptance criteria, and test commands.
+  5. Verify dependencies form a DAG.
+
+Required artifacts:
+  - .dlc/{slug}/plans/epic-NNN.plan.md (the new Epic plan)
+  - .dlc/{slug}/plans/_iteration-state.md (updated with new Epic + backlog)
+
+When done, print exactly: PLAN_IMPLEMENTATION_DONE
+Then list: Epic number, task count, total effort, dependencies on prior Epics.

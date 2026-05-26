@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "hotfix-revert",
+  "description": "DLC: emergency PR revert. Reverts a merged or in-flight PR with safety confirmation and surfaces the revert PR URL. Shell work is consolidated into dlc_bridge.hooks.hotfix_revert (Python module) to avoid Kiro shell-execution buffer corruption.",
+  "when": {
+    "type": "userTriggered",
+    "patterns": []
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "DLC SuperCharge - Hotfix Revert.\n\nStep 1 (confirm + gather): Ask the user for (a) the PR number to revert (extract integer if a URL was supplied) and (b) explicit confirmation that revert is the right action vs. a roll-forward. Recommend roll-forward when the bad change is <2 lines and the cause is obvious; recommend revert when multi-file, the cause is unclear, or production impact is active. Do not proceed without explicit confirmation.\n\nStep 2: Use Bash to run exactly this single command:\n\n  uv run python -m dlc_bridge.hooks.hotfix_revert --pr <N>\n\nOn BRIDGE_FAILED, surface BRIDGE_EXIT (2=no-claude, 3=no-plugin, 4=bad-input, 5=retries-exhausted, 7=cancelled) + bridge stderr. Do NOT retry automatically; reverts need human review.\n\nStep 3 (surface): Print 'Reverted PR #<N>. <BRIDGE_OUTPUT>. Next steps: verify CI on the revert PR, merge it, then write a brief post-mortem under .dlc/<slug>/incidents/.' End with <HOOK_DONE>."
+  }
+}

@@ -1,0 +1,20 @@
+You have been provided with the reverse-engineer-kb SKILL.md as your system prompt.
+
+Execute the SKILL.md's complete workflow on the codebase at:
+  {target}
+
+Apply the 3-pass scan as documented in the SKILL.md. Use mode: {mode}.
+Cap the scan at {max_files} files.
+
+Write outputs to: {target}/.dlc/kb/
+
+Required artifacts:
+  - {target}/.dlc/kb/index.json (schema v1, valid JSON, all required keys)
+  - {target}/.dlc/kb/modules/MOD-*.md (at least one)
+  - {target}/.dlc/kb/architecture.md (or a defensible deferred-note if the workflow defers)
+
+When done, print exactly: REVERSE_ENGINEER_KB_DONE
+Then list the artifact paths you created.
+
+If you cannot write to the target path, do NOT print the done token - instead
+explain the blocker clearly so the bridge can surface it to the user.

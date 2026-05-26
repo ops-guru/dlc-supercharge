@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "on-pr-merged",
+  "description": "DLC SuperCharge D-minus: fires (userTriggered) after a PR is merged. Phase 7 -> 8 finalize chain: verify merge via gh, locate slug, run finalize-sdlc bridge, mark state complete (optionally delete). Shell work is consolidated into dlc_bridge.hooks.on_pr_merged (Python module) to avoid Kiro shell-execution buffer corruption.",
+  "when": {
+    "type": "userTriggered",
+    "patterns": []
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "DLC SuperCharge - On PR Merged (Phase 7 -> 8 finalize).\n\nStep 1 (input): Ask the user for the merged PR number. Optional: ask whether to delete state.md after finalize (default yes).\n\nStep 2: Use Bash to run exactly this single command (append --delete-state if the user confirmed deletion):\n\n  uv run python -m dlc_bridge.hooks.on_pr_merged --pr <N> --delete-state\n\nThe wrapper verifies the merge via gh, locates the slug, runs the finalize-sdlc bridge, and marks state complete. It prints KEY=value lines ending in HOOK_DONE, BRIDGE_FAILED, or surfaces NOT_MERGED.\n\nStep 3 (handle outcomes):\n- NOT_MERGED: surface 'PR #<N> is not merged. Cannot finalize.' and stop.\n- BRIDGE_FAILED: surface BRIDGE_EXIT + bridge stderr and stop.\n- Otherwise capture SLUG, REPORT (if present), and STATE_DELETED.\n\nStep 4 (surface): Print: 'Finalized <SLUG>. PR #<N> merged. Report: <REPORT>. state.md cleared.' End with <HOOK_DONE>."
+  }
+}

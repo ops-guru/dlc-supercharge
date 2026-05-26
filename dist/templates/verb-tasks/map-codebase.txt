@@ -1,0 +1,19 @@
+You have been provided with the map-codebase SKILL.md as your system prompt.
+
+Execute the SKILL.md's complete workflow on the subsystem at:
+  {target}
+
+The workflow should dispatch 4 parallel explore-fast agents to map:
+  - Components and their responsibilities
+  - Dependencies (internal + external)
+  - Conventions in use
+  - Test infrastructure and integration points
+
+Write the architectural map to:
+  .dlc/maps/<sanitized-target>.map.md
+
+When done, print exactly: MAP_CODEBASE_DONE
+Then print the artifact path.
+
+Lighter scan than reverse-engineer-kb - this is the right tool for
+single-subsystem mapping when the surrounding code is already understood.

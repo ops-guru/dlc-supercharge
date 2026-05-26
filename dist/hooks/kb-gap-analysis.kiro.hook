@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "kb-gap-analysis",
+  "description": "DLC: classify requirements rows (xlsx/csv/md-table) against a reverse-engineered KB as COVERED / PARTIAL / NOT_COVERED with citations + a side-by-side spreadsheet. Shell work is consolidated into dlc_bridge.hooks.kb_gap_analysis (Python module) to avoid Kiro shell-execution buffer corruption.",
+  "when": {
+    "type": "userTriggered",
+    "patterns": []
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "DLC SuperCharge - KB Gap Analysis.\n\nStep 1 (input): Ask the user for: (a) source = path to the requirements file (xlsx/csv/md), (b) kb = KB root (default .dlc/kb), (c) mode = 'full' (analyze every row) or 'patch' (only rows whose hash changed). If the KB does not exist, suggest running reverse-engineer-kb first and stop.\n\nStep 2: Use Bash to run exactly this single command:\n\n  uv run python -m dlc_bridge.hooks.kb_gap_analysis --source <source> --kb <kb> --mode <mode>\n\nOn BRIDGE_FAILED, surface BRIDGE_EXIT + bridge stderr and stop. On BRIDGE_CACHED, surface 'Gap analysis cache hit; reusing <path>.' and skip re-analysis.\n\nStep 3 (surface): Read the resulting summary report at .dlc/<slug>/gap-analysis/report.md and print 'Gap analysis complete: COVERED N rows, PARTIAL M rows, NOT_COVERED K rows. Output: <source>_with_gap.xlsx. Full report: <report>.' Suggest two next steps: (a) start a Kiro Spec for the NOT_COVERED rows, (b) drill into the PARTIAL rows. End with <HOOK_DONE>."
+  }
+}

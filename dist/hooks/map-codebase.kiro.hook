@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "map-codebase",
+  "description": "DLC: fast architectural map of a subsystem using 4 parallel explore-fast agents. Shell work is consolidated into dlc_bridge.hooks.map_codebase (Python module) to avoid Kiro shell-execution buffer corruption.",
+  "when": {
+    "type": "userTriggered",
+    "patterns": []
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "DLC SuperCharge - Map Codebase.\n\nStep 1 (input): Ask the user for the target subsystem path (e.g., 'src/auth/' or 'services/payments/').\n\nStep 2: Use Bash to run exactly this single command:\n\n  uv run python -m dlc_bridge.hooks.map_codebase --target <target>\n\nOn BRIDGE_FAILED, surface BRIDGE_EXIT + bridge stderr and stop. On BRIDGE_CACHED, surface 'Map cache hit; reusing <path>.' and stop. Otherwise capture MAP entries.\n\nStep 3 (surface): Print 'Map ready at <MAP>. Open in Kiro\\'s preview pane.' Suggest two next steps: (a) build a tech design that integrates with this subsystem, (b) run a security review on this map via dlc-reviewer-security. End with <HOOK_DONE>.\n\nNote: this hook is the lighter 4-parallel-agent scan; use reverse-engineer-kb for unfamiliar whole-repo onboarding."
+  }
+}

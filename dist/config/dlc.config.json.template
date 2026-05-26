@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "defaults": {
+    "maxBudgetUsd": 5,
+    "mode": "default",
+    "maxFiles": 500
+  },
+  "verbs": {}
+}

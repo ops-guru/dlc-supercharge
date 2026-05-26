@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "on-task-complete",
+  "description": "DLC SuperCharge: postTaskExecution coverage gate. The wrapper detects the project's coverage tool and emits structured findings; the agent runs the tool and dispatches dlc-test-writer if coverage drops below threshold. Shell work is consolidated into dlc_bridge.hooks.on_task_complete (Python module) to avoid Kiro shell-execution buffer corruption.",
+  "when": {
+    "type": "postTaskExecution",
+    "patterns": []
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "DLC SuperCharge - Per-Task Coverage Gate.\n\nStep 1: Use Bash to run exactly this single command:\n\n  uv run python -m dlc_bridge.hooks.on_task_complete\n\nThe wrapper detects the project's coverage tool, reads .dlc.config.json for the threshold override, summarises the most recent diff, and prints KEY=value lines ending in HOOK_DONE. Capture COVERAGE_TOOL, THRESHOLD, SLUG, and DIFF_STAT.\n\nStep 2 (agent-side): If GATE_SKIPPED was emitted, stop with the reason printed. Otherwise run the COVERAGE_TOOL command yourself (it is project-specific and may be long-running). Extract the coverage percentage before and after the diff. If coverage drops below THRESHOLD AND the diff added new behavior (not a pure refactor), dispatch dlc-test-writer on the diff focused on uncovered branches; otherwise stop with 'Coverage OK (<X>% >= <T>%).'\n\nStep 3 (report): After test generation, call the wrapper again to write a report:\n\n  uv run python -m dlc_bridge.hooks.on_task_complete --stage report --slug <SLUG> --threshold <T> --before <X> --after <Y> --tests-added <N>\n\nCapture REPORT. Print: 'Task complete. Coverage: <X>% -> <Y>%. New tests written: <N>. Report: <REPORT>.' End with <HOOK_DONE>."
+  }
+}
