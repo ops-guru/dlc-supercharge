@@ -163,6 +163,55 @@ def repo_root() -> Path:
     return Path(__file__).parent.parent.parent
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _stage_verb_task_templates():
+    """Stage verb-task templates at the bridge's runtime resolution path.
+
+    The bridge resolves verb-task templates from
+    ``<cwd>/.kiro/powers/dlc-supercharge/templates/verb-tasks/`` — the
+    *installed* location that ``bootstrap`` copies into a target workspace.
+    In a dev/CI checkout the templates live at ``dist/templates/verb-tasks/``
+    instead, so the dry-run parity tests would fall back to the synthetic
+    minimal task body and produce a too-short ``assembledPrompt``.
+
+    Previously this passed only because the development workspace
+    (``ops-guru/kiro-bridge-poc``) had self-installed DLC into its own
+    ``.kiro/``. A clean checkout of the standalone ``ops-guru/dlc-supercharge``
+    repo has no such self-install, so we stage the templates here and remove
+    only what we created (never touching a pre-existing ``.kiro/``).
+    """
+    root = Path(__file__).parent.parent.parent
+    src = root / "dist" / "templates" / "verb-tasks"
+    dst = root / ".kiro" / "powers" / "dlc-supercharge" / "templates" / "verb-tasks"
+
+    if not src.is_dir() or dst.is_dir():
+        # No source templates, or an install already exists — leave as-is.
+        yield
+        return
+
+    # Record which ancestor dirs we create so cleanup removes only those.
+    created_root = None
+    probe = dst
+    while not probe.exists():
+        created_root = probe
+        probe = probe.parent
+
+    dst.mkdir(parents=True, exist_ok=True)
+    staged: list[Path] = []
+    for tmpl in src.glob("*.txt"):
+        target = dst / tmpl.name
+        shutil.copy2(tmpl, target)
+        staged.append(target)
+
+    try:
+        yield
+    finally:
+        for target in staged:
+            target.unlink(missing_ok=True)
+        if created_root is not None and created_root.exists():
+            shutil.rmtree(created_root, ignore_errors=True)
+
+
 def normalize_eol(text: str) -> str:
     """Normalize CRLF/CR to LF — Python and PS sometimes disagree on EOL writes."""
     return text.replace("\r\n", "\n").replace("\r", "\n")

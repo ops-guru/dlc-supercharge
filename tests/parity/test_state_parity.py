@@ -62,7 +62,10 @@ def _bootstrap_state_dir(tmp_path: Path, repo_root: Path) -> Path:
     """
     slug_dir = tmp_path / ".dlc" / "test-slug"
     slug_dir.mkdir(parents=True)
-    tmpl_src = repo_root / ".kiro" / "powers" / "dlc-supercharge" / "templates" / "state.md.template"
+    # Canonical source is dist/templates/ (always present in a checkout); the
+    # .kiro/powers/.../templates/ path only exists post-bootstrap-install, which
+    # a clean standalone-repo checkout does not have.
+    tmpl_src = repo_root / "dist" / "templates" / "state.md.template"
     tmpl_dst = tmp_path / ".kiro" / "powers" / "dlc-supercharge" / "templates" / "state.md.template"
     tmpl_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(tmpl_src, tmpl_dst)
