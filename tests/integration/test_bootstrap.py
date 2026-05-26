@@ -27,8 +27,11 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-BOOTSTRAP_PS1 = REPO_ROOT / "dlc-supercharge" / "bootstrap.ps1"
-BOOTSTRAP_SH = REPO_ROOT / "dlc-supercharge" / "bootstrap.sh"
+# Post-migration layout: POWER.md + bootstrap.{ps1,sh} live at the repo root
+# (this repo IS the Power bundle). Pre-migration they lived in a `dlc-supercharge/`
+# subdir of `ops-guru/kiro-bridge-poc`.
+BOOTSTRAP_PS1 = REPO_ROOT / "bootstrap.ps1"
+BOOTSTRAP_SH = REPO_ROOT / "bootstrap.sh"
 
 
 def _find_powershell() -> str | None:
